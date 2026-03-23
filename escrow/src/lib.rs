@@ -4,7 +4,9 @@
 //! - SME receives stablecoin when funding target is met
 //! - Investors receive principal + yield when buyer pays at maturity
 
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol};
+use soroban_sdk::{
+    contract, contractevent, contractimpl, contracttype, symbol_short, vec, Address, Env, Symbol,
+};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -21,12 +23,31 @@ pub struct InvoiceEscrow {
     pub funding_target: i128,
     /// Total funded so far by investors
     pub funded_amount: i128,
+    /// Total settled (paid by buyer) so far
+    pub settled_amount: i128,
     /// Yield basis points (e.g. 800 = 8%)
     pub yield_bps: i64,
     /// Maturity timestamp (ledger time)
     pub maturity: u64,
     /// Escrow status: 0 = open, 1 = funded, 2 = settled
     pub status: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MaturityUpdatedEvent {
+    pub invoice_id: Symbol,
+    pub old_maturity: u64,
+    pub new_maturity: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PartialSettlementEvent {
+    pub invoice_id: Symbol,
+    pub amount: i128,
+    pub settled_amount: i128,
+    pub total_due: i128,
 }
 
 #[contract]
@@ -51,6 +72,7 @@ impl LiquifactEscrow {
             amount,
             funding_target: amount,
             funded_amount: 0,
+            settled_amount: 0,
             yield_bps,
             maturity,
             status: 0, // open
@@ -83,17 +105,48 @@ impl LiquifactEscrow {
         escrow
     }
 
-    /// Mark escrow as settled (buyer paid). Releases principal + yield to investors.
-    pub fn settle(env: Env) -> InvoiceEscrow {
+    /// Mark escrow as settled (buyer paid partial or full). 
+    /// Releases principal + yield to investors.
+    pub fn settle(env: Env, amount: i128) -> InvoiceEscrow {
         let mut escrow = Self::get_escrow(env.clone());
         assert!(
-            escrow.status == 1,
+            escrow.status == 1 || escrow.status == 2,
             "Escrow must be funded before settlement"
         );
-        escrow.status = 2; // settled
+        
+        // Final status 2 means already fully settled, but we allow 
+        // calling this as long as it doesn't exceed total_due
+        
+        let interest = (escrow.amount * (escrow.yield_bps as i128)) / 10000;
+        let total_due = escrow.amount + interest;
+        
+        escrow.settled_amount += amount;
+        
+        assert!(
+            escrow.settled_amount <= total_due,
+            "Settlement amount exceeds total due"
+        );
+        
+        if escrow.settled_amount == total_due {
+            escrow.status = 2; // fully settled
+        }
+
         env.storage()
             .instance()
             .set(&symbol_short!("escrow"), &escrow);
+
+        // Audit event
+        let topics = vec![&env, symbol_short!("settle"), symbol_short!("partial")];
+        env.events().publish(
+            topics,
+            PartialSettlementEvent {
+                invoice_id: escrow.invoice_id.clone(),
+                amount,
+                settled_amount: escrow.settled_amount,
+                total_due,
+            },
+        );
+
         escrow
     }
 
@@ -115,9 +168,14 @@ impl LiquifactEscrow {
             .set(&symbol_short!("escrow"), &escrow);
 
         // Audit event
+        let topics = vec![&env, symbol_short!("maturity"), symbol_short!("updated")];
         env.events().publish(
-            (symbol_short!("maturity"), symbol_short!("updated")),
-            (escrow.invoice_id.clone(), old_maturity, new_maturity),
+            topics,
+            MaturityUpdatedEvent {
+                invoice_id: escrow.invoice_id.clone(),
+                old_maturity,
+                new_maturity,
+            },
         );
 
         escrow

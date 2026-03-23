@@ -54,8 +54,106 @@ fn test_fund_and_settle() {
     assert_eq!(escrow1.funded_amount, 10_000_0000000i128);
     assert_eq!(escrow1.status, 1);
 
-    let escrow2 = client.settle();
+    let interest = (10_000_0000000i128 * 800) / 10000;
+    let total_due = 10_000_0000000i128 + interest;
+
+    let escrow2 = client.settle(&total_due);
     assert_eq!(escrow2.status, 2);
+}
+
+#[test]
+fn test_partial_settlement_flow() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let sme = Address::generate(&env);
+    let admin = Address::generate(&env);
+    let investor = Address::generate(&env);
+    let contract_id = env.register(LiquifactEscrow, ());
+    let client = LiquifactEscrowClient::new(&env, &contract_id);
+
+    client.init(
+        &symbol_short!("INV_P1"),
+        &sme,
+        &admin,
+        &10_000_0000000i128,
+        &800i64,
+        &1000u64,
+    );
+
+    client.fund(&investor, &10_000_0000000i128);
+
+    let interest = (10_000_0000000i128 * 800) / 10000;
+    let total_due = 10_000_0000000i128 + interest; // 10,800,000,000
+
+    // First partial: 5,000,000,000
+    let e1 = client.settle(&5_000_0000000i128);
+    assert_eq!(e1.settled_amount, 5_000_0000000i128);
+    assert_eq!(e1.status, 1);
+
+    // Second partial: 5,000,000,000
+    let e2 = client.settle(&5_000_0000000i128);
+    assert_eq!(e2.settled_amount, 10_000_0000000i128);
+    assert_eq!(e2.status, 1);
+
+    // Final settlement: 800,000,000
+    let e3 = client.settle(&800_0000000i128);
+    assert_eq!(e3.settled_amount, total_due);
+    assert_eq!(e3.status, 2);
+}
+
+#[test]
+#[should_panic(expected = "Settlement amount exceeds total due")]
+fn test_over_settlement_failure() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let sme = Address::generate(&env);
+    let admin = Address::generate(&env);
+    let investor = Address::generate(&env);
+    let contract_id = env.register(LiquifactEscrow, ());
+    let client = LiquifactEscrowClient::new(&env, &contract_id);
+
+    client.init(
+        &symbol_short!("INV_O1"),
+        &sme,
+        &admin,
+        &10_000_0000000i128,
+        &800i64,
+        &1000u64,
+    );
+
+    client.fund(&investor, &10_000_0000000i128);
+
+    let interest = (10_000_0000000i128 * 800) / 10000;
+    let total_due = 10_000_0000000i128 + interest;
+
+    // Try to settle more than due
+    client.settle(&(total_due + 1));
+}
+
+#[test]
+#[should_panic(expected = "Escrow must be funded before settlement")]
+fn test_settle_not_funded() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let sme = Address::generate(&env);
+    let admin = Address::generate(&env);
+    let contract_id = env.register(LiquifactEscrow, ());
+    let client = LiquifactEscrowClient::new(&env, &contract_id);
+
+    client.init(
+        &symbol_short!("INV_NF"),
+        &sme,
+        &admin,
+        &10_000_0000000i128,
+        &800i64,
+        &1000u64,
+    );
+
+    // Not funded, should panic
+    client.settle(&1000i128);
 }
 
 #[test]
