@@ -80,11 +80,27 @@ impl LiquifactEscrow {
     }
 
     /// Mark escrow as settled (buyer paid). Releases principal + yield to investors.
+    ///
+    /// # Security
+    /// Settlement is gated on two conditions:
+    /// 1. The escrow must be fully funded (`status == 1`).
+    /// 2. The current ledger timestamp must be **≥ maturity**. This prevents a
+    ///    buyer or any other caller from triggering early settlement before the
+    ///    invoice is actually due, protecting investors from premature principal
+    ///    return that could be exploited to avoid yield obligations.
+    ///
+    /// `env.ledger().timestamp()` is the canonical on-chain clock and cannot be
+    /// manipulated by the contract caller, making it safe to use as a time gate.
     pub fn settle(env: Env) -> InvoiceEscrow {
         let mut escrow = Self::get_escrow(env.clone());
         assert!(
             escrow.status == 1,
             "Escrow must be funded before settlement"
+        );
+        let now = env.ledger().timestamp();
+        assert!(
+            now >= escrow.maturity,
+            "Cannot settle before maturity timestamp"
         );
         escrow.status = 2; // settled
         env.storage()
