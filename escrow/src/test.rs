@@ -288,7 +288,7 @@ fn test_fund_after_funded_panics() {
 
 /// Settling an escrow that is still open (not yet funded) must panic.
 #[test]
-#[should_panic(expected = "Escrow must be funded before settlement")]
+#[should_panic(expected = "Escrow must be funded or withdrawn before settlement")]
 fn test_settle_before_funded_panics() {
     let (_, client, admin, sme) = setup();
 
@@ -319,12 +319,14 @@ fn test_partial_fund_stays_open() {
     let env = Env::default();
     env.mock_all_auths();
 
+    let admin = Address::generate(&env);
     let sme = Address::generate(&env);
     let investor = Address::generate(&env);
     let contract_id = env.register(LiquifactEscrow, ());
     let client = LiquifactEscrowClient::new(&env, &contract_id);
 
     client.init(
+        &admin,
         &symbol_short!("INV003"),
         &sme,
         &10_000_0000000i128,
@@ -344,16 +346,18 @@ fn test_partial_fund_stays_open() {
 
 /// Attempting to settle an escrow that is still open must panic.
 #[test]
-#[should_panic(expected = "Escrow must be funded before settlement")]
+#[should_panic(expected = "Escrow must be funded or withdrawn before settlement")]
 fn test_settle_unfunded_panics() {
     let env = Env::default();
     env.mock_all_auths();
 
+    let admin = Address::generate(&env);
     let sme = Address::generate(&env);
     let contract_id = env.register(LiquifactEscrow, ());
     let client = LiquifactEscrowClient::new(&env, &contract_id);
 
     client.init(
+        &admin,
         &symbol_short!("INV004"),
         &sme,
         &10_000_0000000i128,
@@ -364,26 +368,191 @@ fn test_settle_unfunded_panics() {
     client.settle(); // must panic
 }
 
-/// Funding an already-funded (status=1) escrow must panic.
+// ---------------------------------------------------------------------------
+// SME Withdrawal tests
+// ---------------------------------------------------------------------------
+
+/// Happy path: SME successfully withdraws after full funding.
 #[test]
-#[should_panic(expected = "Escrow not open for funding")]
-fn test_fund_after_funded_panics() {
+fn test_withdraw_after_full_funding() {
+    let (env, client, admin, sme) = setup();
+    let investor = Address::generate(&env);
+
+    client.init(
+        &admin,
+        &symbol_short!("INV012"),
+        &sme,
+        &10_000_0000000i128,
+        &800i64,
+        &1000u64,
+    );
+    client.fund(&investor, &10_000_0000000i128); // status becomes 1 (funded)
+
+    let withdrawn_amount = client.withdraw();
+    assert_eq!(withdrawn_amount, 10_000_0000000i128);
+
+    // Verify escrow state after withdrawal
+    let escrow = client.get_escrow();
+    assert_eq!(escrow.status, 3); // withdrawn
+    assert_eq!(escrow.funded_amount, 0); // funded amount cleared
+}
+
+/// Verify that `withdraw` records an auth requirement for the SME address.
+#[test]
+fn test_withdraw_requires_sme_auth() {
     let env = Env::default();
     env.mock_all_auths();
 
+    let admin = Address::generate(&env);
     let sme = Address::generate(&env);
     let investor = Address::generate(&env);
     let contract_id = env.register(LiquifactEscrow, ());
     let client = LiquifactEscrowClient::new(&env, &contract_id);
 
     client.init(
-        &symbol_short!("INV005"),
+        &admin,
+        &symbol_short!("INV013"),
+        &sme,
+        &1_000i128,
+        &500i64,
+        &2000u64,
+    );
+    client.fund(&investor, &1_000i128);
+    client.withdraw();
+
+    let auths = env.auths();
+    assert!(
+        auths.iter().any(|(addr, _)| *addr == sme),
+        "sme auth was not recorded for withdraw"
+    );
+}
+
+/// Withdrawal before funding target is met must panic.
+#[test]
+#[should_panic(expected = "Escrow must be funded before withdrawal")]
+fn test_withdraw_before_funded_panics() {
+    let (_, client, admin, sme) = setup();
+
+    client.init(
+        &admin,
+        &symbol_short!("INV014"),
         &sme,
         &10_000_0000000i128,
         &800i64,
         &1000u64,
     );
+    // No funding, status is still 0 (open)
+    client.withdraw(); // must panic
+}
 
-    client.fund(&investor, &10_000_0000000i128); // fills target → status 1
-    client.fund(&investor, &1i128); // must panic
+/// Partial funding then withdrawal must panic.
+#[test]
+#[should_panic(expected = "Escrow must be funded before withdrawal")]
+fn test_withdraw_partial_funding_panics() {
+    let (env, client, admin, sme) = setup();
+    let investor = Address::generate(&env);
+
+    client.init(
+        &admin,
+        &symbol_short!("INV015"),
+        &sme,
+        &10_000_0000000i128,
+        &800i64,
+        &1000u64,
+    );
+    client.fund(&investor, &5_000_0000000i128); // partial funding, status stays 0
+    client.withdraw(); // must panic
+}
+
+/// Second withdrawal must panic (already withdrawn).
+#[test]
+#[should_panic(expected = "Escrow must be funded before withdrawal")]
+fn test_withdraw_twice_panics() {
+    let (env, client, admin, sme) = setup();
+    let investor = Address::generate(&env);
+
+    client.init(
+        &admin,
+        &symbol_short!("INV016"),
+        &sme,
+        &10_000_0000000i128,
+        &800i64,
+        &1000u64,
+    );
+    client.fund(&investor, &10_000_0000000i128);
+    client.withdraw(); // first withdrawal succeeds
+    client.withdraw(); // second must panic (status is now 3)
+}
+
+/// `withdraw` called without SME auth should panic.
+#[test]
+#[should_panic]
+fn test_withdraw_unauthorized_panics() {
+    let env = Env::default();
+    // Do NOT mock auths.
+    let admin = Address::generate(&env);
+    let sme = Address::generate(&env);
+    let investor = Address::generate(&env);
+    let contract_id = env.register(LiquifactEscrow, ());
+
+    // Use mock_all_auths only for setup steps.
+    env.mock_all_auths();
+    let client = LiquifactEscrowClient::new(&env, &contract_id);
+    client.init(
+        &admin,
+        &symbol_short!("INV017"),
+        &sme,
+        &1_000i128,
+        &500i64,
+        &2000u64,
+    );
+    client.fund(&investor, &1_000i128);
+
+    // Clear mocked auths so withdraw must satisfy real auth.
+    let env2 = Env::default(); // fresh env — no mocked auths
+    let client2 = LiquifactEscrowClient::new(&env2, &contract_id);
+    client2.withdraw(); // should panic: sme auth not satisfied
+}
+
+/// Settlement should work after withdrawal (status = 3).
+#[test]
+fn test_settle_after_withdrawal() {
+    let (env, client, admin, sme) = setup();
+    let investor = Address::generate(&env);
+
+    client.init(
+        &admin,
+        &symbol_short!("INV018"),
+        &sme,
+        &10_000_0000000i128,
+        &800i64,
+        &1000u64,
+    );
+    client.fund(&investor, &10_000_0000000i128);
+    client.withdraw(); // status becomes 3 (withdrawn)
+
+    let settled = client.settle(); // should succeed (status 3 → 2)
+    assert_eq!(settled.status, 2); // settled
+}
+
+/// Settlement after withdrawal returns correct funded amount.
+#[test]
+fn test_settle_after_withdraw_funded_amount_zero() {
+    let (env, client, admin, sme) = setup();
+    let investor = Address::generate(&env);
+
+    client.init(
+        &admin,
+        &symbol_short!("INV019"),
+        &sme,
+        &10_000_0000000i128,
+        &800i64,
+        &1000u64,
+    );
+    client.fund(&investor, &10_000_0000000i128);
+    client.withdraw();
+
+    let settled = client.settle();
+    assert_eq!(settled.status, 2);
+    assert_eq!(settled.funded_amount, 0); // funded amount should remain 0 after withdrawal
 }

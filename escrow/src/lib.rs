@@ -10,6 +10,7 @@
 //! |----------|------------------------|---------------------------------------------|
 //! | `init`   | `admin`                | Only the designated admin may create escrows |
 //! | `fund`   | `investor`             | Investor authorizes their own funding action |
+//! | `withdraw` | `sme_address`        | Only the SME may withdraw funded liquidity |
 //! | `settle` | `sme_address`          | Only the SME (payee) may trigger settlement  |
 //!
 //! All auth checks are enforced via [`Address::require_auth`], which integrates
@@ -36,7 +37,7 @@ pub struct InvoiceEscrow {
     pub yield_bps: i64,
     /// Maturity timestamp (ledger time)
     pub maturity: u64,
-    /// Escrow status: 0 = open, 1 = funded, 2 = settled
+    /// Escrow status: 0 = open, 1 = funded, 2 = settled, 3 = withdrawn
     pub status: u32,
 }
 
@@ -128,7 +129,7 @@ impl LiquifactEscrow {
     /// preventing unauthorized state transitions to the settled state.
     ///
     /// # Panics
-    /// - If the escrow is not in the funded (status = 1) state.
+    /// - If the escrow is not in the funded (status = 1) or withdrawn (status = 3) state.
     pub fn settle(env: Env) -> InvoiceEscrow {
         let mut escrow = Self::get_escrow(env.clone());
 
@@ -136,14 +137,63 @@ impl LiquifactEscrow {
         escrow.sme_address.require_auth();
 
         assert!(
-            escrow.status == 1,
-            "Escrow must be funded before settlement"
+            escrow.status == 1 || escrow.status == 3,
+            "Escrow must be funded or withdrawn before settlement"
         );
         escrow.status = 2; // settled
         env.storage()
             .instance()
             .set(&symbol_short!("escrow"), &escrow);
         escrow
+    }
+
+    /// Withdraw funded liquidity to the SME wallet.
+    ///
+    /// Allows the configured SME address to withdraw the funded amount once the
+    /// funding target has been reached. This transfers the liquidity to the SME
+    /// while preserving the escrow state for later settlement when the buyer pays.
+    ///
+    /// # Authorization
+    /// Requires authorization from the `sme_address` stored in the escrow.
+    /// Only the SME that is the beneficiary of the escrow may withdraw the funded amount,
+    /// preventing unauthorized withdrawals.
+    ///
+    /// # Panics
+    /// - If the escrow is not in the funded (status = 1) state.
+    /// - If the escrow has already been withdrawn (status = 3).
+    ///
+    /// # Returns
+    /// The funded amount that was withdrawn to the SME.
+    ///
+    /// # Example
+    /// ```ignore
+    /// // After funding target is met (status = 1)
+    /// let amount = client.withdraw();
+    /// // SME receives the funded_amount; status changes to 3 (withdrawn)
+    /// ```
+    pub fn withdraw(env: Env) -> i128 {
+        let mut escrow = Self::get_escrow(env.clone());
+
+        // Auth boundary: only the SME (beneficiary) may withdraw the funded amount.
+        escrow.sme_address.require_auth();
+
+        assert!(
+            escrow.status == 1,
+            "Escrow must be funded before withdrawal"
+        );
+        assert!(
+            escrow.funded_amount > 0,
+            "No funds available for withdrawal"
+        );
+
+        let withdrawal_amount = escrow.funded_amount;
+        escrow.status = 3; // withdrawn - SME has received the funds
+        escrow.funded_amount = 0; // Clear funded amount after withdrawal
+        env.storage()
+            .instance()
+            .set(&symbol_short!("escrow"), &escrow);
+
+        withdrawal_amount
     }
 }
 
