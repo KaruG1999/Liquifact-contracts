@@ -40,12 +40,12 @@ For CI and local checks you only need Rust and `cargo`.
 
 ## Development
 
-| Command           | Description                    |
-|-------------------|--------------------------------|
-| `cargo build`     | Build all contracts            |
-| `cargo test`      | Run unit tests                 |
-| `cargo fmt`       | Format code                    |
-| `cargo fmt -- --check` | Check formatting (used in CI) |
+| Command                    | Description                   |
+|----------------------------|-------------------------------|
+| `cargo build`              | Build all contracts           |
+| `cargo test`               | Run unit tests                |
+| `cargo fmt`                | Format code                   |
+| `cargo fmt -- --check`     | Check formatting (used in CI) |
 
 ---
 
@@ -65,10 +65,24 @@ liquifact-contracts/
 
 ### Escrow contract (high level)
 
-- **init** — Create an invoice escrow (invoice id, SME address, amount, yield bps, maturity).
+- **init** — Create an invoice escrow (invoice id, SME address, amount, yield bps, maturity). Emits `init` event.
 - **get_escrow** — Read current escrow state.
-- **fund** — Record investor funding; status becomes “funded” when target is met.
-- **settle** — Mark escrow as settled (buyer paid; investors receive principal + yield).
+- **fund** — Record investor funding; status becomes "funded" when target is met. Emits `fund` event.
+- **settle** — Mark escrow as settled (buyer paid; investors receive principal + yield). Emits `settle` event.
+
+### Events
+
+The contract emits Soroban events on every state-changing call, enabling off-chain indexers and analytics.
+
+| Method   | Topics                   | Payload fields                                   |
+|----------|--------------------------|--------------------------------------------------|
+| `init`   | `["init", invoice_id]`   | `sme_address`, `amount`, `yield_bps`, `maturity` |
+| `fund`   | `["fund", invoice_id]`   | `investor`, `amount`, `funded_amount`, `status`  |
+| `settle` | `["settle", invoice_id]` | `sme_address`, `amount`, `yield_bps`             |
+
+All payload types (`InitEvent`, `FundEvent`, `SettleEvent`) are exported `#[contracttype]` structs — see [`escrow/src/lib.rs`](escrow/src/lib.rs) for full field documentation.
+
+The `invoice_id` in the topic allows indexers to filter events by invoice without decoding the payload.
 
 ---
 
@@ -101,7 +115,7 @@ Keep formatting and tests passing before opening a PR.
 7. **Push** to your fork and open a **Pull Request** to `main`.
 8. Wait for CI and address review feedback.
 
-We welcome new contracts (e.g. settlement, tokenization helpers), tests, and docs that align with LiquiFact’s invoice financing flow.
+We welcome new contracts (e.g. settlement, tokenization helpers), tests, and docs that align with LiquiFact's invoice financing flow.
 
 ---
 

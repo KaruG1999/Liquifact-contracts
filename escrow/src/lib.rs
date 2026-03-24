@@ -3,8 +3,18 @@
 //! Holds investor funds for an invoice until settlement.
 //! - SME receives stablecoin when funding target is met
 //! - Investors receive principal + yield when buyer pays at maturity
+//!
+//! # Events
+//!
+//! The contract emits the following Soroban events for off-chain indexers:
+//!
+//! | Topic                  | Data fields                                                      |
+//! |------------------------|------------------------------------------------------------------|
+//! | `("init", invoice_id)` | `{ sme_address, amount, yield_bps, maturity }`                   |
+//! | `("fund", invoice_id)` | `{ investor, amount, funded_amount, status }`                    |
+//! | `("settle", invoice_id)` | `{ sme_address, amount, yield_bps }`                           |
 
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, vec, Address, Env, Symbol};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -27,12 +37,51 @@ pub struct InvoiceEscrow {
     pub status: u32,
 }
 
+/// Event payload emitted by [`LiquifactEscrow::init`].
+///
+/// Topics: `["init", invoice_id]`
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InitEvent {
+    pub sme_address: Address,
+    pub amount: i128,
+    pub yield_bps: i64,
+    pub maturity: u64,
+}
+
+/// Event payload emitted by [`LiquifactEscrow::fund`].
+///
+/// Topics: `["fund", invoice_id]`
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FundEvent {
+    pub investor: Address,
+    pub amount: i128,
+    pub funded_amount: i128,
+    /// Status after this funding call: 0 = still open, 1 = fully funded
+    pub status: u32,
+}
+
+/// Event payload emitted by [`LiquifactEscrow::settle`].
+///
+/// Topics: `["settle", invoice_id]`
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SettleEvent {
+    pub sme_address: Address,
+    pub amount: i128,
+    pub yield_bps: i64,
+}
+
 #[contract]
 pub struct LiquifactEscrow;
 
 #[contractimpl]
 impl LiquifactEscrow {
     /// Initialize a new invoice escrow.
+    ///
+    /// Emits an `init` event with topics `["init", invoice_id]` and
+    /// payload [`InitEvent`].
     pub fn init(
         env: Env,
         invoice_id: Symbol,
@@ -49,11 +98,22 @@ impl LiquifactEscrow {
             funded_amount: 0,
             yield_bps,
             maturity,
-            status: 0, // open
+            status: 0,
         };
         env.storage()
             .instance()
             .set(&symbol_short!("escrow"), &escrow);
+
+        env.events().publish(
+            (symbol_short!("init"), invoice_id),
+            InitEvent {
+                sme_address,
+                amount,
+                yield_bps,
+                maturity,
+            },
+        );
+
         escrow
     }
 
@@ -66,30 +126,57 @@ impl LiquifactEscrow {
     }
 
     /// Record investor funding. In production, this would be called with token transfer.
-    pub fn fund(env: Env, _investor: Address, amount: i128) -> InvoiceEscrow {
+    ///
+    /// Emits a `fund` event with topics `["fund", invoice_id]` and
+    /// payload [`FundEvent`].
+    pub fn fund(env: Env, investor: Address, amount: i128) -> InvoiceEscrow {
         let mut escrow = Self::get_escrow(env.clone());
         assert!(escrow.status == 0, "Escrow not open for funding");
         escrow.funded_amount += amount;
         if escrow.funded_amount >= escrow.funding_target {
-            escrow.status = 1; // funded - ready to release to SME
+            escrow.status = 1;
         }
         env.storage()
             .instance()
             .set(&symbol_short!("escrow"), &escrow);
+
+        env.events().publish(
+            (symbol_short!("fund"), escrow.invoice_id.clone()),
+            FundEvent {
+                investor,
+                amount,
+                funded_amount: escrow.funded_amount,
+                status: escrow.status,
+            },
+        );
+
         escrow
     }
 
     /// Mark escrow as settled (buyer paid). Releases principal + yield to investors.
+    ///
+    /// Emits a `settle` event with topics `["settle", invoice_id]` and
+    /// payload [`SettleEvent`].
     pub fn settle(env: Env) -> InvoiceEscrow {
         let mut escrow = Self::get_escrow(env.clone());
         assert!(
             escrow.status == 1,
             "Escrow must be funded before settlement"
         );
-        escrow.status = 2; // settled
+        escrow.status = 2;
         env.storage()
             .instance()
             .set(&symbol_short!("escrow"), &escrow);
+
+        env.events().publish(
+            (symbol_short!("settle"), escrow.invoice_id.clone()),
+            SettleEvent {
+                sme_address: escrow.sme_address.clone(),
+                amount: escrow.amount,
+                yield_bps: escrow.yield_bps,
+            },
+        );
+
         escrow
     }
 }
