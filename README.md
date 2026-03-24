@@ -70,6 +70,24 @@ liquifact-contracts/
 - **fund** — Record investor funding; status becomes “funded” when target is met.
 - **settle** — Mark escrow as settled (buyer paid; investors receive principal + yield).
 
+### Maturity gate
+
+`settle` enforces two guards before advancing status to `settled (2)`:
+
+1. **Funding check** — `status` must equal `1` (fully funded). Attempting to settle an unfunded escrow panics with `"Escrow must be funded before settlement"`.
+2. **Time check** — `env.ledger().timestamp()` must be **≥ `maturity`**. Attempting to settle before the invoice is due panics with `"Cannot settle before maturity timestamp"`.
+
+`env.ledger().timestamp()` is the canonical Soroban on-chain clock. It is set by the Stellar network and **cannot be manipulated by the contract caller**, making it safe to use as a time gate.
+
+| Ledger time vs maturity | Status | Result |
+|-------------------------|--------|--------|
+| `now < maturity`        | funded | panic — premature settlement blocked |
+| `now == maturity`       | funded | success |
+| `now > maturity`        | funded | success |
+| any                     | open   | panic — not yet funded |
+
+Setting `maturity = 0` effectively disables the time lock (any timestamp ≥ 0).
+
 ---
 
 ## CI/CD
