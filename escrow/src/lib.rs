@@ -10,9 +10,8 @@
 //! contribution under a dedicated storage key so that payout accounting,
 //! auditing, and future partial-settlement logic can query exact amounts
 //! without replaying the full event history.
-
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Symbol};
-//! # Authorization Boundaries
+//!
+//! ## Authorization Boundaries
 //!
 //! | Function | Required Signer        | Reason                                      |
 //! |----------|------------------------|---------------------------------------------|
@@ -22,6 +21,8 @@ use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Symbol};
 //!
 //! All auth checks are enforced via [`Address::require_auth`], which integrates
 //! with Soroban's native authorization framework and is verifiable on-chain.
+
+use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Symbol};
 
 // ---------------------------------------------------------------------------
 // Data types
@@ -74,8 +75,6 @@ pub struct LiquifactEscrow;
 impl LiquifactEscrow {
     /// Initialize a new invoice escrow.
     ///
-    /// Panics if an escrow has already been stored (call once per contract
-    /// instance).
     /// # Authorization
     /// Requires authorization from `admin`. This prevents any unauthorized
     /// party from creating or overwriting escrow state.
@@ -91,17 +90,12 @@ impl LiquifactEscrow {
         yield_bps: i64,
         maturity: u64,
     ) -> InvoiceEscrow {
-        sme_address.require_auth();
-        assert!(
-            !env.storage().instance().has(&DataKey::Escrow),
-            "Escrow already initialized"
-        );
         // Auth boundary: only the admin may initialize the escrow.
         admin.require_auth();
 
         // Prevent re-initialization — escrow must not already exist.
         assert!(
-            !env.storage().instance().has(&symbol_short!("escrow")),
+            !env.storage().instance().has(&DataKey::Escrow),
             "Escrow already initialized"
         );
 
@@ -136,9 +130,6 @@ impl LiquifactEscrow {
     ///
     /// In production this would be paired with a token transfer; here we
     /// record the accounting entry only.
-    pub fn fund(env: Env, investor: Address, amount: i128) -> InvoiceEscrow {
-        investor.require_auth();
-    /// Record investor funding. In production, this would be called with token transfer.
     ///
     /// # Authorization
     /// Requires authorization from `investor`. Each investor authorizes their
@@ -179,8 +170,6 @@ impl LiquifactEscrow {
 
     /// Mark escrow as settled (buyer paid). Releases principal + yield to investors.
     ///
-    /// Requires the SME to authorise settlement and the escrow to be fully
-    /// funded. The maturity timestamp must have been reached.
     /// # Authorization
     /// Requires authorization from the `sme_address` stored in the escrow.
     /// Only the SME that is the beneficiary of the escrow may trigger settlement,
@@ -203,7 +192,6 @@ impl LiquifactEscrow {
             escrow.maturity == 0 || now >= escrow.maturity,
             "Cannot settle before maturity"
         );
-        escrow.sme_address.require_auth();
         escrow.status = 2; // settled
         env.storage().instance().set(&DataKey::Escrow, &escrow);
         escrow
