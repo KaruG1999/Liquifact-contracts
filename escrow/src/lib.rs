@@ -1,8 +1,13 @@
 //! # LiquiFact Escrow Contract
 //!
 //! Holds investor funds for an invoice until settlement.
-//! - SME receives stablecoin when funding target is met
-//! - Investors receive principal + yield when buyer pays at maturity
+//!
+//! ### Settlement Sequence
+//! 1. **Initialization**: Admin creates the escrow with `init`.
+//! 2. **Funding**: Investors contribute funds via `fund` until `funding_target` is met (status 0 -> 1).
+//! 3. **Payment Confirmation**: After buyer pays the SME off-chain (or via other means), the buyer
+//!    calls `confirm_payment` to acknowledge repayment.
+//! 4. **Settlement**: SME calls `settle` to finalize the escrow, moving it to status 2.
 //!
 //! # Storage Schema Versioning
 //!
@@ -155,6 +160,8 @@ pub struct EscrowFunded {
     pub funded_amount: i128,
     /// Status value **after** this call: `0` = still open, `1` = now fully funded.
     pub status: u32,
+    /// Whether the buyer has confirmed payment (repayment of invoice)
+    pub is_paid: bool,
 }
 
 /// Emitted by `settle()` once the buyer has paid and the escrow is closed.
@@ -212,6 +219,11 @@ impl LiquifactEscrow {
 
     /// Initialize a new invoice escrow.
     ///
+    /// `metadata_hash` must be the SHA-256 digest of the canonical off-chain invoice
+    /// document (e.g. `SHA-256(invoice_json_utf8_bytes)`). It is stored immutably
+    /// and can later be used by any party to verify that the document has not been
+    /// tampered with since escrow creation.
+    ///
     /// # Authorization
     /// Requires authorization from `admin`. This prevents any unauthorized
     /// party from creating or overwriting escrow state.
@@ -225,13 +237,13 @@ impl LiquifactEscrow {
         sme_address: Address,
         admin: Address,
         amount: i128,
-        yield_bps: i64,
+        yield_bps: u32,
         maturity: u64,
         funding_deadline: u64, // NEW
     ) -> InvoiceEscrow {
         // Prevent re-initialization
         assert!(
-            !env.storage().instance().has(&symbol_short!("escrow")),
+            !env.storage().instance().has(&DataKey::Escrow),
             "Escrow already initialized"
         );
         let escrow = InvoiceEscrow {
@@ -379,6 +391,11 @@ impl LiquifactEscrow {
         assert!(escrow.status == 1, "Escrow must be funded");
     /// Mark escrow as settled (buyer paid). Releases principal + yield to investors.
     ///
+    /// This is the final step in the escrow lifecycle. It requires that:
+    /// 1. The escrow is fully funded (status = 1).
+    /// 2. The buyer has explicitly confirmed payment via `confirm_payment`.
+    /// 3. The SME (payee) authorizes the settlement.
+    ///
     /// # Authorization
     /// Requires authorization from the `sme_address` stored in the escrow.
     /// Only the SME that is the beneficiary of the escrow may trigger settlement,
@@ -386,6 +403,7 @@ impl LiquifactEscrow {
     ///
     /// # Panics
     /// - If the escrow is not in the funded (status = 1) state.
+    /// - If the buyer has not confirmed the payment yet.
     pub fn settle(env: Env) -> InvoiceEscrow {
         let mut escrow = Self::get_escrow(env.clone());
 
@@ -463,7 +481,59 @@ impl LiquifactEscrow {
 
         escrow
     }
+
+    /// Withdraw funded liquidity to the SME wallet.
+    ///
+    /// Allows the configured SME address to withdraw the funded amount once the
+    /// funding target has been reached. This transfers the liquidity to the SME
+    /// while preserving the escrow state for later settlement when the buyer pays.
+    ///
+    /// # Authorization
+    /// Requires authorization from the `sme_address` stored in the escrow.
+    /// Only the SME that is the beneficiary of the escrow may withdraw the funded amount,
+    /// preventing unauthorized withdrawals.
+    ///
+    /// # Panics
+    /// - If the escrow is not in the funded (status = 1) state.
+    /// - If the escrow has already been withdrawn (status = 3).
+    ///
+    /// # Returns
+    /// The funded amount that was withdrawn to the SME.
+    ///
+    /// # Example
+    /// ```ignore
+    /// // After funding target is met (status = 1)
+    /// let amount = client.withdraw();
+    /// // SME receives the funded_amount; status changes to 3 (withdrawn)
+    /// ```
+    pub fn withdraw(env: Env) -> i128 {
+        let mut escrow = Self::get_escrow(env.clone());
+
+        // Auth boundary: only the SME (beneficiary) may withdraw the funded amount.
+        escrow.sme_address.require_auth();
+
+        assert!(
+            escrow.status == 1,
+            "Escrow must be funded before withdrawal"
+        );
+        assert!(
+            escrow.funded_amount > 0,
+            "No funds available for withdrawal"
+        );
+
+        let withdrawal_amount = escrow.funded_amount;
+        escrow.status = 3; // withdrawn - SME has received the funds
+        escrow.funded_amount = 0; // Clear funded amount after withdrawal
+        env.storage()
+            .instance()
+            .set(&symbol_short!("escrow"), &escrow);
+
+        withdrawal_amount
+    }
 }
 
+// ---------------------------------------------------------------------------
+// Tests live in a separate module, following Soroban convention.
+// ---------------------------------------------------------------------------
 #[cfg(test)]
 mod test;

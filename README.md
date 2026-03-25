@@ -269,7 +269,7 @@ Keep formatting, tests, and coverage passing before opening a PR.
 5. **Verify locally**:
    - `cargo fmt --all -- --check`
    - `cargo build`
-   - `cargo test`
+   - `cargo test --features testutils`
 6. **Commit** with clear messages (e.g. `feat(escrow): X`, `test(escrow): Y`).
 7. **Push** to your fork and open a **Pull Request** to `main`.
 8. Wait for CI and address review feedback.
