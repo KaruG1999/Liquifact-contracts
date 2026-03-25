@@ -206,6 +206,7 @@ Currently, the contract methods (`init`, `fund`, `settle`) **do not enforce auth
 - **Minimum Funding:** All funding amounts must be strictly greater than zero ($> 0$). 
 - **Initialization:** Escrow creation will fail if the target amount is not positive.
 - **Integer Safety:** Uses `checked_add` to prevent overflow during funded amount accounting.
+- **Governance Controls (Target Update):** The funding target size (`amount`) can be modified by the initialized `admin`. It enforces strict governance constraints: it can only be modified when the escrow is `Open` (status = 0), the new target must be strictly positive, and it can never be less than the existing `funded_amount`.
 
 ---
 

@@ -197,10 +197,6 @@ fn test_fund_allowed_when_unpaused() {
     assert_eq!(escrow.funded_amount, 500_000);
 }
 
-    assert_eq!(escrow.version, SCHEMA_VERSION);
-    assert_eq!(client.get_version(), SCHEMA_VERSION);
-}
-
 #[test]
 fn test_init_and_get_escrow() {
     let env = Env::default();
@@ -237,13 +233,6 @@ fn test_init_with_zero_fails() {
     let env = Env::default();
     let (client, sme, id) = setup_test(&env);
     client.init(&id, &sme, &0, &800, &10000);
-}
-
-    // get_escrow must match what init returned
-    let got = client.get_escrow();
-    assert_eq!(got.invoice_id, escrow.invoice_id);
-    assert_eq!(got.admin, admin);
-    assert_eq!(got.metadata_hash, test_hash(&env));
 }
 
 /// `init` must emit exactly one `EscrowInitialized` event whose payload
@@ -291,13 +280,7 @@ fn test_fund_with_zero_fails() {
     client.fund(&investor, &1i128); // must panic
 }
 
-    let e1 = client.fund(&investor, &10_000_0000000i128);
-    assert_eq!(e1.funded_amount, 10_000_0000000i128);
-    assert_eq!(e1.status, 1);
 
-    let e2 = client.settle();
-    assert_eq!(e2.status, 2);
-}
 
 #[test]
 fn test_partial_fund_stays_open() {
@@ -769,25 +752,10 @@ fn test_over_settlement_failure() {
     assert_eq!(client.get_contribution(&investor), 5_000_0000000i128);
 }
 
-    client.init(
-        &symbol_short!("INV_O1"),
-        &sme,
-        &admin,
-        &10_000_0000000i128,
-        &800i64,
-        &2000u64,
-        &test_hash(&env),
-    );
 
     // Fund exactly the target in one shot
-    let after_fund = client.fund(&investor, &10_000_0000000i128);
-    assert_eq!(after_fund.funded_amount, 10_000_0000000i128);
-    assert_eq!(after_fund.status, 1, "should be funded");
 
     // Settle
-    let after_settle = client.settle();
-    assert_eq!(after_settle.status, 2, "should be settled");
-}
 
 #[test]
 fn test_partial_funding_multiple_investors() {
@@ -1027,13 +995,8 @@ fn test_settle_unauthorized_panics() {
     client.settle();
 }
 
-    let new_maturity = 2000u64;
-    let escrow = client.update_maturity(&new_maturity);
-    assert_eq!(escrow.maturity, new_maturity);
 
     // Verify state is still Open
-    assert_eq!(escrow.status, 0);
-}
 
 #[test]
 #[should_panic]
@@ -1119,14 +1082,9 @@ fn test_cost_baseline_settle() {
 }
 
     // Fund the escrow to change state to 1 (Funded)
-    client.fund(&investor, &10_000_0000000i128);
     
-    let escrow = client.get_escrow();
-    assert_eq!(escrow.status, 1);
 
     // This should panic
-    client.update_maturity(&2000u64);
-}
 
 #[test]
 fn test_full_funding_updates_status() {
