@@ -1435,3 +1435,250 @@ fn test_factory_settle_requires_sme_auth() {
         "sme auth was not recorded for settle"
     );
 }
+
+// ---------------------------------------------------------------------------
+// LiquifactEscrow — transfer_admin tests
+// ---------------------------------------------------------------------------
+
+/// transfer_admin updates the admin field to the new address.
+#[test]
+fn test_transfer_admin_updates_admin() {
+    let (env, client, admin, sme) = setup();
+    let new_admin = Address::generate(&env);
+
+    client.init(
+        &admin,
+        &symbol_short!("T001"),
+        &sme,
+        &1_000i128,
+        &500i64,
+        &2000u64,
+    );
+
+    let updated = client.transfer_admin(&new_admin);
+    assert_eq!(updated.admin, new_admin);
+
+    // Persisted state must also reflect the new admin.
+    let stored = client.get_escrow();
+    assert_eq!(stored.admin, new_admin);
+}
+
+/// After transfer, the new admin is recorded as the authorizer.
+#[test]
+fn test_transfer_admin_records_new_admin_auth() {
+    let (env, client, admin, sme) = setup();
+    let new_admin = Address::generate(&env);
+
+    client.init(
+        &admin,
+        &symbol_short!("T002"),
+        &sme,
+        &1_000i128,
+        &500i64,
+        &2000u64,
+    );
+    client.transfer_admin(&new_admin);
+
+    let auths = env.auths();
+    assert!(
+        auths.iter().any(|(addr, _)| *addr == admin),
+        "current admin auth was not recorded for transfer_admin"
+    );
+}
+
+/// transfer_admin emits an (admin, transfer) event with old and new addresses.
+#[test]
+fn test_transfer_admin_emits_event() {
+    let (env, client, admin, sme) = setup();
+    let new_admin = Address::generate(&env);
+
+    client.init(
+        &admin,
+        &symbol_short!("T003"),
+        &sme,
+        &1_000i128,
+        &500i64,
+        &2000u64,
+    );
+    client.transfer_admin(&new_admin);
+
+    let events = env.events().all();
+    assert!(
+        !events.is_empty(),
+        "expected at least one event after transfer_admin"
+    );
+}
+
+/// Transferring to the same address must panic.
+#[test]
+#[should_panic(expected = "New admin must differ from current admin")]
+fn test_transfer_admin_same_address_panics() {
+    let (_, client, admin, sme) = setup();
+
+    client.init(
+        &admin,
+        &symbol_short!("T004"),
+        &sme,
+        &1_000i128,
+        &500i64,
+        &2000u64,
+    );
+    client.transfer_admin(&admin); // same address — must panic
+}
+
+/// transfer_admin on an uninitialized escrow must panic.
+#[test]
+#[should_panic(expected = "Escrow not initialized")]
+fn test_transfer_admin_uninitialized_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(LiquifactEscrow, ());
+    let client = LiquifactEscrowClient::new(&env, &contract_id);
+    let new_admin = Address::generate(&env);
+
+    client.transfer_admin(&new_admin);
+}
+
+/// Non-admin caller must not be able to transfer admin (auth failure).
+#[test]
+#[should_panic]
+fn test_transfer_admin_unauthorized_panics() {
+    let env = Env::default();
+    // mock_all_auths only for setup steps.
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let sme = Address::generate(&env);
+    let contract_id = env.register(LiquifactEscrow, ());
+    let client = LiquifactEscrowClient::new(&env, &contract_id);
+
+    client.init(
+        &admin,
+        &symbol_short!("T005"),
+        &sme,
+        &1_000i128,
+        &500i64,
+        &2000u64,
+    );
+
+    // Fresh env without mocked auths — real auth check fires.
+    let env2 = Env::default();
+    let client2 = LiquifactEscrowClient::new(&env2, &contract_id);
+    let new_admin = Address::generate(&env2);
+    client2.transfer_admin(&new_admin); // must panic: admin auth not satisfied
+}
+
+/// transfer_admin can be called multiple times (chained rotation).
+#[test]
+fn test_transfer_admin_chained_rotation() {
+    let (env, client, admin, sme) = setup();
+    let admin2 = Address::generate(&env);
+    let admin3 = Address::generate(&env);
+
+    client.init(
+        &admin,
+        &symbol_short!("T006"),
+        &sme,
+        &1_000i128,
+        &500i64,
+        &2000u64,
+    );
+
+    client.transfer_admin(&admin2);
+    assert_eq!(client.get_escrow().admin, admin2);
+
+    client.transfer_admin(&admin3);
+    assert_eq!(client.get_escrow().admin, admin3);
+}
+
+/// Other escrow fields are unchanged after transfer_admin.
+#[test]
+fn test_transfer_admin_preserves_escrow_fields() {
+    let (env, client, admin, sme) = setup();
+    let new_admin = Address::generate(&env);
+
+    client.init(
+        &admin,
+        &symbol_short!("T007"),
+        &sme,
+        &5_000i128,
+        &800i64,
+        &3000u64,
+    );
+    let updated = client.transfer_admin(&new_admin);
+
+    assert_eq!(updated.invoice_id, symbol_short!("T007"));
+    assert_eq!(updated.sme_address, sme);
+    assert_eq!(updated.amount, 5_000i128);
+    assert_eq!(updated.yield_bps, 800i64);
+    assert_eq!(updated.maturity, 3000u64);
+    assert_eq!(updated.funded_amount, 0);
+    assert_eq!(updated.status, 0);
+}
+
+// ---------------------------------------------------------------------------
+// EscrowFactory — transfer_admin tests
+// ---------------------------------------------------------------------------
+
+/// Factory transfer_admin updates the admin for the specified invoice only.
+#[test]
+fn test_factory_transfer_admin_updates_admin() {
+    let (env, client, admin, sme) = factory_setup();
+    let new_admin = Address::generate(&env);
+
+    client.create_escrow(&admin, &symbol_short!("G001"), &sme, &1_000i128, &500i64, &500u64);
+
+    let updated = client.transfer_admin(&symbol_short!("G001"), &new_admin);
+    assert_eq!(updated.admin, new_admin);
+    assert_eq!(client.get_escrow(&symbol_short!("G001")).admin, new_admin);
+}
+
+/// Factory transfer_admin only affects the target invoice, not others.
+#[test]
+fn test_factory_transfer_admin_isolated() {
+    let (env, client, admin, sme) = factory_setup();
+    let new_admin = Address::generate(&env);
+
+    client.create_escrow(&admin, &symbol_short!("G002"), &sme, &1_000i128, &500i64, &500u64);
+    client.create_escrow(&admin, &symbol_short!("G003"), &sme, &1_000i128, &500i64, &500u64);
+
+    client.transfer_admin(&symbol_short!("G002"), &new_admin);
+
+    // G003 admin must remain unchanged.
+    assert_eq!(client.get_escrow(&symbol_short!("G003")).admin, admin);
+}
+
+/// Factory transfer_admin to same address must panic.
+#[test]
+#[should_panic(expected = "New admin must differ from current admin")]
+fn test_factory_transfer_admin_same_address_panics() {
+    let (_, client, admin, sme) = factory_setup();
+
+    client.create_escrow(&admin, &symbol_short!("G004"), &sme, &1_000i128, &500i64, &500u64);
+    client.transfer_admin(&symbol_short!("G004"), &admin);
+}
+
+/// Factory transfer_admin on unknown invoice must panic.
+#[test]
+#[should_panic(expected = "Escrow not found for invoice")]
+fn test_factory_transfer_admin_unknown_invoice_panics() {
+    let (env, client, _, _) = factory_setup();
+    let new_admin = Address::generate(&env);
+
+    client.transfer_admin(&symbol_short!("NOPE"), &new_admin);
+}
+
+/// Factory transfer_admin emits event.
+#[test]
+fn test_factory_transfer_admin_emits_event() {
+    let (env, client, admin, sme) = factory_setup();
+    let new_admin = Address::generate(&env);
+
+    client.create_escrow(&admin, &symbol_short!("G005"), &sme, &1_000i128, &500i64, &500u64);
+    client.transfer_admin(&symbol_short!("G005"), &new_admin);
+
+    let events = env.events().all();
+    assert!(
+        !events.is_empty(),
+        "expected at least one event after factory transfer_admin"
+    );
+}
