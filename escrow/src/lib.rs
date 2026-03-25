@@ -335,6 +335,9 @@ impl LiquifactEscrow {
         investor.require_auth();
 
         let mut escrow = Self::get_escrow(env.clone());
+        
+        // Sanity Check: Reject zero or negative funding amounts
+        assert!(amount > 0, "Funding amount must be positive");
         assert!(escrow.status == 0, "Escrow not open for funding");
 
         escrow.funded_amount += amount;

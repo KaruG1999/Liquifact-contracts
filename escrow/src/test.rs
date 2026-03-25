@@ -86,6 +86,15 @@ fn test_init_and_get_escrow() {
     assert_eq!(escrow.yield_bps, 800);
     assert_eq!(escrow.maturity, 1000);
     assert_eq!(escrow.status, 0);
+}
+
+#[test]
+#[should_panic(expected = "Escrow amount must be positive")]
+fn test_init_with_zero_fails() {
+    let env = Env::default();
+    let (client, sme, id) = setup_test(&env);
+    client.init(&id, &sme, &0, &800, &10000);
+}
 
     // get_escrow must match what init returned
     let got = client.get_escrow();
@@ -114,7 +123,8 @@ fn test_reinit_is_rejected() {
 // ── fund & settle ─────────────────────────────────────────────────────────────
 
 #[test]
-fn test_fund_and_settle() {
+#[should_panic(expected = "Funding amount must be positive")]
+fn test_fund_with_zero_fails() {
     let env = Env::default();
     env.mock_all_auths();
     let admin = Address::generate(&env);
@@ -723,4 +733,17 @@ fn test_update_maturity_wrong_state() {
 
     // This should panic
     client.update_maturity(&2000u64);
+}
+
+#[test]
+fn test_full_funding_updates_status() {
+    let env = Env::default();
+    let (client, sme, id) = setup_test(&env);
+    let investor = Address::generate(&env);
+    
+    client.init(&id, &sme, &1000, &800, &10000);
+    client.fund(&investor, &1000);
+    
+    let escrow = client.get_escrow();
+    assert_eq!(escrow.status, 1); // Status 1 = Funded
 }
