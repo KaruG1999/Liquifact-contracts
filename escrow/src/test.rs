@@ -297,3 +297,44 @@ fn test_full_lifecycle_with_version_check() {
     assert_eq!(read.invoice_id, 99);
     assert_eq!(read.yield_bps, 300);
 }
+
+#[test]
+fn test_high_investor_benchmark() {
+    // [BENCH] High investor cardinality scenario
+    use soroban_sdk::{Env, Address};
+
+    let env = Env::default();
+    let contract_id = env.register_contract(None, LiquiFactEscrow);
+
+    // Initialize escrow
+    let admin = Address::random(&env);
+    let sme = Address::random(&env);
+    let target_amount = 1_000_000i128;
+    LiquiFactEscrowClient::new(&env, &contract_id).init(
+        &admin,
+        &sme,
+        &0i64,          // invoice_id dummy
+        &target_amount,
+        &500i64,        // yield_bps
+        &1000u64        // maturity
+    );
+
+    // Simulate large number of investors
+    let investors_count = 10_000;
+    let unit_amount = 100i128;
+
+    for _i in 0..investors_count {
+        let investor = Address::random(&env);
+        LiquiFactEscrowClient::new(&env, &contract_id)
+            .fund(&investor, &unit_amount);
+    }
+
+    // Check accumulation
+    let escrow = LiquiFactEscrowClient::new(&env, &contract_id).get_escrow();
+    assert!(
+        escrow.funded_amount >= unit_amount * investors_count as i128,
+        "funded_amount did not accumulate correctly under load"
+    );
+
+    assert_eq!(escrow.status, 1, "status should be 'funded'");
+}

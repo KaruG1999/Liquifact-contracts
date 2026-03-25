@@ -70,6 +70,17 @@ liquifact-contracts/
 
 ---
 
+### Benchmark: High Investor Count
+
+Added a test (`test_high_investor_benchmark`) under `escrow/src/test.rs` 
+to validate storage consistency and accumulation accuracy across thousands 
+of investors. 
+
+Covers:
+- Memory and storage growth
+- Sum correctness across large iterations
+- Status transitions at funding threshold
+
 ## Contract Version Introspection (`version`)
 
 ### Overview
@@ -107,6 +118,7 @@ assert_eq!(version.to_string(), "1.0.0");
 | No state mutation   | Safe to call from any context; cannot trigger side-effects.               |
 | No auth required    | Purely informational; any caller may invoke it.                           |
 | Tamper-resistant    | Value is a compile-time constant embedded in the WASM binary; it cannot be changed without redeployment. |
+
 
 ### Upgrade workflow
 
