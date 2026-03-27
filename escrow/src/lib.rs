@@ -1,13 +1,15 @@
-//! # LiquiFact Escrow Contract
+//! LiquiFact Escrow Contract
 //!
 //! Holds investor funds for an invoice until settlement.
+//! - SME receives stablecoin when funding target is met
+//! - Investors receive principal + yield when buyer pays at maturity
 //!
 //! ### Settlement Sequence
 //! 1. **Initialization**: Admin creates the escrow with `init`.
 //! 2. **Funding**: Investors contribute funds via `fund` until `funding_target` is met (status 0 -> 1).
 //! 3. **Settlement**: SME calls `settle` to finalize the escrow, moving it to status 2.
 //!
-//! # Storage Schema Versioning
+//! The contract emits the following Soroban events for off-chain indexers:
 //!
 //! | Version | Changes |
 //! |---------|---------|
@@ -112,7 +114,6 @@ impl LiquifactEscrow {
     /// - If an escrow has already been initialized.
     pub fn init(
         env: Env,
-        admin: Address,
         invoice_id: Symbol,
         sme_address: Address,
         amount: i128,
@@ -128,7 +129,6 @@ impl LiquifactEscrow {
 
         let escrow = InvoiceEscrow {
             invoice_id: invoice_id.clone(),
-            admin: admin.clone(),
             sme_address: sme_address.clone(),
             amount,
             funding_target: amount,
@@ -210,7 +210,6 @@ impl LiquifactEscrow {
 
         assert!(amount > 0, "Funding amount must be positive");
         assert!(escrow.status == 0, "Escrow not open for funding");
-
         escrow.funded_amount += amount;
         if escrow.funded_amount >= escrow.funding_target {
             escrow.status = 1;

@@ -7,9 +7,9 @@ use soroban_sdk::{
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-fn deploy(env: &Env) -> LiquifactEscrowClient<'_> {
+fn deploy(env: &Env) -> (LiquifactEscrowClient<'_>, Address) {
     let id = env.register(LiquifactEscrow, ());
-    LiquifactEscrowClient::new(env, &id)
+    (LiquifactEscrowClient::new(env, &id), id)
 }
 
 fn setup(env: &Env) -> (LiquifactEscrowClient<'_>, Address, Address) {
@@ -237,6 +237,8 @@ fn test_unknown_investor_contribution_is_zero() {
     assert_eq!(client.get_contribution(&stranger), 0i128);
 }
 
+// ── event: init ───────────────────────────────────────────────────────────────
+
 #[test]
 fn test_repeated_funding_accumulates_contribution() {
     let env = Env::default();
@@ -254,6 +256,8 @@ fn test_repeated_funding_accumulates_contribution() {
     client.fund(&investor, &3_000_0000000i128);
     assert_eq!(client.get_contribution(&investor), 5_000_0000000i128);
 }
+
+// ── event: fund (partial) ─────────────────────────────────────────────────────
 
 #[test]
 fn test_multiple_investors_tracked_independently() {
@@ -325,6 +329,8 @@ fn test_settle_after_full_funding() {
     let settled = client.settle();
     assert_eq!(settled.status, 2);
 }
+
+// ── event: settle ─────────────────────────────────────────────────────────────
 
 #[test]
 #[should_panic(expected = "Escrow must be funded before settlement")]
