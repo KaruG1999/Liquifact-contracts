@@ -382,20 +382,20 @@ impl LiquifactEscrow {
             escrow.status == 1 || escrow.status == 2,
             "Escrow must be funded before settlement"
         );
-        
-        // Final status 2 means already fully settled, but we allow 
+
+        // Final status 2 means already fully settled, but we allow
         // calling this as long as it doesn't exceed total_due
-        
+
         let interest = (escrow.amount * (escrow.yield_bps as i128)) / 10000;
         let total_due = escrow.amount + interest;
-        
+
         escrow.settled_amount += amount;
-        
+
         assert!(
             escrow.settled_amount <= total_due,
             "Settlement amount exceeds total due"
         );
-        
+
         if escrow.settled_amount == total_due {
             escrow.status = 2; // fully settled
         }
@@ -427,7 +427,10 @@ impl LiquifactEscrow {
         escrow.admin.require_auth();
 
         // Validation: preventing post-funding tampering
-        assert!(escrow.status == 0, "Maturity can only be updated in Open state");
+        assert!(
+            escrow.status == 0,
+            "Maturity can only be updated in Open state"
+        );
 
         let old_maturity = escrow.maturity;
         escrow.maturity = new_maturity;

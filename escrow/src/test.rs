@@ -40,8 +40,22 @@ fn test_init_replay_is_rejected() {
     let sme = Address::generate(&env);
     let client = deploy(&env);
 
-    client.init(&admin, &symbol_short!("INV002"), &sme, &10_000i128, &800i64, &1000u64);
-    client.init(&admin, &symbol_short!("INV002"), &sme, &10_000i128, &800i64, &1000u64);
+    client.init(
+        &admin,
+        &symbol_short!("INV002"),
+        &sme,
+        &10_000i128,
+        &800i64,
+        &1000u64,
+    );
+    client.init(
+        &admin,
+        &symbol_short!("INV002"),
+        &sme,
+        &10_000i128,
+        &800i64,
+        &1000u64,
+    );
 }
 
 #[test]
@@ -53,7 +67,14 @@ fn test_fund_replay_after_funded_panics() {
     let investor = Address::generate(&env);
     let client = deploy(&env);
 
-    client.init(&admin, &symbol_short!("INV003"), &sme, &1_000i128, &800i64, &1000u64);
+    client.init(
+        &admin,
+        &symbol_short!("INV003"),
+        &sme,
+        &1_000i128,
+        &800i64,
+        &1000u64,
+    );
     client.fund(&investor, &1_000i128);
     assert_eq!(client.get_escrow().status, 1);
 
@@ -74,7 +95,14 @@ fn test_withdraw_replay_is_rejected() {
     let investor = Address::generate(&env);
     let client = deploy(&env);
 
-    client.init(&admin, &symbol_short!("INV004"), &sme, &1_000i128, &800i64, &1000u64);
+    client.init(
+        &admin,
+        &symbol_short!("INV004"),
+        &sme,
+        &1_000i128,
+        &800i64,
+        &1000u64,
+    );
     client.fund(&investor, &1_000i128);
 
     let withdrawn = client.withdraw();
@@ -94,7 +122,14 @@ fn test_settle_partial_then_full_and_replay_overpay_panics() {
     let investor = Address::generate(&env);
     let client = deploy(&env);
 
-    client.init(&admin, &symbol_short!("INV005"), &sme, &1_000i128, &800i64, &1000u64);
+    client.init(
+        &admin,
+        &symbol_short!("INV005"),
+        &sme,
+        &1_000i128,
+        &800i64,
+        &1000u64,
+    );
     client.fund(&investor, &1_000i128);
 
     let interest = (1_000i128 * 800i128) / 10_000i128;
@@ -107,9 +142,7 @@ fn test_settle_partial_then_full_and_replay_overpay_panics() {
     assert_eq!(client.get_escrow().status, 2);
 
     // Replay settle with a positive amount after fully settled should fail due to overpay.
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        client.settle(&1i128)
-    }));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| client.settle(&1i128)));
     assert!(result.is_err());
 }
 
@@ -122,6 +155,13 @@ fn test_settle_before_funded_is_rejected() {
     let sme = Address::generate(&env);
     let client = deploy(&env);
 
-    client.init(&admin, &symbol_short!("INV006"), &sme, &1_000i128, &800i64, &1000u64);
+    client.init(
+        &admin,
+        &symbol_short!("INV006"),
+        &sme,
+        &1_000i128,
+        &800i64,
+        &1000u64,
+    );
     client.settle(&1i128);
 }
