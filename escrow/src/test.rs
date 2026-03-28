@@ -82,11 +82,7 @@ fn test_init_stores_keyed_invoice_and_lists_it() {
         &Address::generate(&env),
     );
     let got = client.get_escrow();
-    assert_eq!(got.invoice_id, escrow.invoice_id);
-    assert_eq!(got.admin, admin);
-    assert_eq!(got.sme_address, sme);
-    assert_eq!(got.amount, escrow.amount);
-    assert_eq!(got.status, 0);
+    assert_eq!(got, escrow);
 }
 
 #[test]
@@ -713,7 +709,7 @@ fn test_record_collateral_stored_and_does_not_block_settle() {
     let c = client.record_sme_collateral_commitment(&symbol_short!("USDC"), &5000i128);
     assert_eq!(c.amount, 5000i128);
     assert_eq!(c.asset, symbol_short!("USDC"));
-    assert!(client.get_sme_collateral_commitment().is_some());
+    assert_eq!(client.get_sme_collateral_commitment(), Some(c));
 
     client.fund(&investor, &TARGET);
     let settled = client.settle();
