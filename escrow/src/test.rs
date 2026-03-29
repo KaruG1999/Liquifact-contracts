@@ -1987,7 +1987,10 @@ fn test_high_variance_funding_sequence_invariants() {
         let escrow = client.get_escrow();
         assert!(escrow.funded_amount >= prev_funded);
         assert_eq!(escrow.funded_amount, observed_sum);
-        assert_eq!(escrow.status, if escrow.funded_amount >= target { 1 } else { 0 });
+        assert_eq!(
+            escrow.status,
+            if escrow.funded_amount >= target { 1 } else { 0 }
+        );
         prev_funded = escrow.funded_amount;
     }
 }
