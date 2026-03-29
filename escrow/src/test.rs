@@ -2392,6 +2392,372 @@ fn test_append_attestation_respects_max_length() {
     .is_err());
 }
 
+// --- beneficiary rotation tests ---
+
+#[test]
+fn test_propose_beneficiary_success() {
+    let env = Env::default();
+    let (client, admin, sme) = setup(&env);
+    let new_sme = Address::generate(&env);
+    
+    default_init(&client, &env, &admin, &sme);
+    
+    let proposal = client.propose_beneficiary(&new_sme, &3600u64);
+    
+    assert_eq!(proposal.proposed_address, new_sme);
+    assert_eq!(proposal.timelock_duration_secs, 3600);
+    assert_eq!(proposal.proposed_at, env.ledger().timestamp());
+    
+    let stored_proposal = client.get_beneficiary_proposal().unwrap();
+    assert_eq!(stored_proposal, proposal);
+}
+
+#[test]
+#[should_panic(expected = "Proposed address cannot be the same as current SME")]
+fn test_propose_beneficiary_same_as_current_panics() {
+    let env = Env::default();
+    let (client, admin, sme) = setup(&env);
+    
+    default_init(&client, &env, &admin, &sme);
+    client.propose_beneficiary(&sme, &3600u64);
+}
+
+#[test]
+#[should_panic(expected = "Timelock duration must be greater than zero")]
+fn test_propose_beneficiary_zero_timelock_panics() {
+    let env = Env::default();
+    let (client, admin, sme) = setup(&env);
+    let new_sme = Address::generate(&env);
+    
+    default_init(&client, &env, &admin, &sme);
+    client.propose_beneficiary(&new_sme, &0u64);
+}
+
+#[test]
+#[should_panic(expected = "There is already an active beneficiary proposal")]
+fn test_propose_beneficiary_duplicate_panics() {
+    let env = Env::default();
+    let (client, admin, sme) = setup(&env);
+    let new_sme = Address::generate(&env);
+    
+    default_init(&client, &env, &admin, &sme);
+    client.propose_beneficiary(&new_sme, &3600u64);
+    client.propose_beneficiary(&new_sme, &7200u64);
+}
+
+#[test]
+#[should_panic]
+fn test_propose_beneficiary_unauthorized_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let sme = Address::generate(&env);
+    let new_sme = Address::generate(&env);
+    let client = deploy(&env);
+    
+    default_init(&client, &env, &admin, &sme);
+    env.mock_auths(&[]);
+    client.propose_beneficiary(&new_sme, &3600u64);
+}
+
+#[test]
+fn test_accept_beneficiary_success() {
+    let env = Env::default();
+    let (client, admin, sme) = setup(&env);
+    let new_sme = Address::generate(&env);
+    
+    default_init(&client, &env, &admin, &sme);
+    client.propose_beneficiary(&new_sme, &1u64); // 1 second timelock
+    
+    env.ledger().set_timestamp(2); // Wait for timelock to expire
+    
+    env.mock_all_auths();
+    let updated_escrow = client.accept_beneficiary(&new_sme);
+    
+    assert_eq!(updated_escrow.sme_address, new_sme);
+    assert_eq!(client.get_current_sme_address(), new_sme);
+    assert!(client.get_beneficiary_proposal().is_none());
+}
+
+#[test]
+#[should_panic(expected = "Only the proposed address can accept the beneficiary role")]
+fn test_accept_beneficiary_wrong_address_panics() {
+    let env = Env::default();
+    let (client, admin, sme) = setup(&env);
+    let new_sme = Address::generate(&env);
+    let wrong_address = Address::generate(&env);
+    
+    default_init(&client, &env, &admin, &sme);
+    client.propose_beneficiary(&new_sme, &1u64); // 1 second timelock
+    
+    env.ledger().set_timestamp(2); // Wait for timelock to expire
+    
+    env.mock_all_auths();
+    client.accept_beneficiary(&wrong_address);
+}
+
+#[test]
+#[should_panic(expected = "No beneficiary proposal exists")]
+fn test_accept_beneficiary_no_proposal_panics() {
+    let env = Env::default();
+    let (client, admin, sme) = setup(&env);
+    
+    default_init(&client, &env, &admin, &sme);
+    
+    env.mock_all_auths();
+    let new_sme = Address::generate(&env);
+    client.accept_beneficiary(&new_sme);
+}
+
+#[test]
+#[should_panic(expected = "Timelock has not expired yet")]
+fn test_accept_beneficiary_timelock_not_expired_panics() {
+    let env = Env::default();
+    let (client, admin, sme) = setup(&env);
+    let new_sme = Address::generate(&env);
+    
+    default_init(&client, &env, &admin, &sme);
+    client.propose_beneficiary(&new_sme, &3600u64); // 1 hour timelock
+    
+    env.mock_all_auths();
+    client.accept_beneficiary(&new_sme);
+}
+
+#[test]
+fn test_accept_beneficiary_after_timelock() {
+    let env = Env::default();
+    let (client, admin, sme) = setup(&env);
+    let new_sme = Address::generate(&env);
+    
+    default_init(&client, &env, &admin, &sme);
+    client.propose_beneficiary(&new_sme, &100u64); // 100 seconds timelock
+    
+    env.ledger().set_timestamp(101);
+    
+    env.mock_all_auths();
+    let updated_escrow = client.accept_beneficiary(&new_sme);
+    
+    assert_eq!(updated_escrow.sme_address, new_sme);
+    assert_eq!(client.get_current_sme_address(), new_sme);
+}
+
+#[test]
+fn test_cancel_beneficiary_proposal() {
+    let env = Env::default();
+    let (client, admin, sme) = setup(&env);
+    let new_sme = Address::generate(&env);
+    
+    default_init(&client, &env, &admin, &sme);
+    client.propose_beneficiary(&new_sme, &3600u64);
+    
+    assert!(client.get_beneficiary_proposal().is_some());
+    
+    client.cancel_beneficiary_proposal();
+    
+    assert!(client.get_beneficiary_proposal().is_none());
+}
+
+#[test]
+#[should_panic(expected = "No beneficiary proposal exists to cancel")]
+fn test_cancel_beneficiary_proposal_no_proposal_panics() {
+    let env = Env::default();
+    let (client, admin, sme) = setup(&env);
+    
+    default_init(&client, &env, &admin, &sme);
+    client.cancel_beneficiary_proposal();
+}
+
+#[test]
+#[should_panic]
+fn test_cancel_beneficiary_proposal_unauthorized_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let sme = Address::generate(&env);
+    let new_sme = Address::generate(&env);
+    let client = deploy(&env);
+    
+    default_init(&client, &env, &admin, &sme);
+    client.propose_beneficiary(&new_sme, &3600u64);
+    
+    env.mock_auths(&[]);
+    client.cancel_beneficiary_proposal();
+}
+
+#[test]
+fn test_get_current_sme_address_before_rotation() {
+    let env = Env::default();
+    let (client, admin, sme) = setup(&env);
+    
+    default_init(&client, &env, &admin, &sme);
+    
+    assert_eq!(client.get_current_sme_address(), sme);
+}
+
+#[test]
+fn test_get_current_sme_address_after_rotation() {
+    let env = Env::default();
+    let (client, admin, sme) = setup(&env);
+    let new_sme = Address::generate(&env);
+    
+    default_init(&client, &env, &admin, &sme);
+    client.propose_beneficiary(&new_sme, &1u64); // 1 second timelock
+    
+    env.ledger().set_timestamp(2); // Wait for timelock to expire
+    
+    env.mock_all_auths();
+    client.accept_beneficiary(&new_sme);
+    
+    assert_eq!(client.get_current_sme_address(), new_sme);
+}
+
+#[test]
+fn test_can_accept_beneficiary_before_timelock() {
+    let env = Env::default();
+    let (client, admin, sme) = setup(&env);
+    let new_sme = Address::generate(&env);
+    
+    default_init(&client, &env, &admin, &sme);
+    client.propose_beneficiary(&new_sme, &3600u64);
+    
+    assert!(!client.can_accept_beneficiary());
+}
+
+#[test]
+fn test_can_accept_beneficiary_after_timelock() {
+    let env = Env::default();
+    let (client, admin, sme) = setup(&env);
+    let new_sme = Address::generate(&env);
+    
+    default_init(&client, &env, &admin, &sme);
+    client.propose_beneficiary(&new_sme, &100u64);
+    
+    env.ledger().set_timestamp(101);
+    
+    assert!(client.can_accept_beneficiary());
+}
+
+#[test]
+fn test_can_accept_beneficiary_no_proposal() {
+    let env = Env::default();
+    let (client, admin, sme) = setup(&env);
+    
+    default_init(&client, &env, &admin, &sme);
+    
+    assert!(!client.can_accept_beneficiary());
+}
+
+#[test]
+fn test_withdraw_with_rotated_beneficiary() {
+    let env = Env::default();
+    let (client, admin, sme) = setup(&env);
+    let new_sme = Address::generate(&env);
+    let investor = Address::generate(&env);
+    
+    default_init(&client, &env, &admin, &sme);
+    client.fund(&investor, &TARGET);
+    
+    // Rotate beneficiary
+    client.propose_beneficiary(&new_sme, &1u64); // 1 second timelock
+    
+    env.ledger().set_timestamp(2); // Wait for timelock to expire
+    
+    env.mock_all_auths();
+    client.accept_beneficiary(&new_sme);
+    
+    // New SME should be able to withdraw
+    let updated_escrow = client.withdraw();
+    assert_eq!(updated_escrow.status, 3);
+}
+
+#[test]
+fn test_settle_with_rotated_beneficiary() {
+    let env = Env::default();
+    let (client, admin, sme) = setup(&env);
+    let new_sme = Address::generate(&env);
+    let investor = Address::generate(&env);
+    
+    default_init(&client, &env, &admin, &sme);
+    client.fund(&investor, &TARGET);
+    
+    // Rotate beneficiary
+    client.propose_beneficiary(&new_sme, &1u64); // 1 second timelock
+    
+    env.ledger().set_timestamp(2); // Wait for timelock to expire
+    
+    env.mock_all_auths();
+    client.accept_beneficiary(&new_sme);
+    
+    // Set ledger time to maturity to allow settlement
+    env.ledger().set_timestamp(1000);
+    
+    // New SME should be able to settle
+    let updated_escrow = client.settle();
+    assert_eq!(updated_escrow.status, 2);
+}
+
+#[test]
+fn test_beneficiary_rotation_full_lifecycle() {
+    let env = Env::default();
+    let (client, admin, sme) = setup(&env);
+    let new_sme = Address::generate(&env);
+    let investor = Address::generate(&env);
+    
+    // Initialize escrow
+    default_init(&client, &env, &admin, &sme);
+    
+    // Fund the escrow
+    client.fund(&investor, &TARGET);
+    
+    // Admin proposes new beneficiary with 1 hour timelock
+    let proposal = client.propose_beneficiary(&new_sme, &3600u64);
+    assert_eq!(proposal.proposed_address, new_sme);
+    assert_eq!(proposal.timelock_duration_secs, 3600);
+    
+    // Try to accept immediately - should fail
+    env.mock_all_auths();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.accept_beneficiary(&new_sme);
+    }));
+    assert!(result.is_err());
+    
+    // Wait for timelock to expire
+    env.ledger().set_timestamp(3601);
+    
+    // New SME accepts the role
+    let updated_escrow = client.accept_beneficiary(&new_sme);
+    assert_eq!(updated_escrow.sme_address, new_sme);
+    assert!(client.get_beneficiary_proposal().is_none());
+    
+    // New SME can withdraw funds
+    let final_escrow = client.withdraw();
+    assert_eq!(final_escrow.status, 3);
+}
+
+#[test]
+fn test_beneficiary_proposal_cancel_and_repropose() {
+    let env = Env::default();
+    let (client, admin, sme) = setup(&env);
+    let new_sme1 = Address::generate(&env);
+    let new_sme2 = Address::generate(&env);
+    
+    default_init(&client, &env, &admin, &sme);
+    
+    // Propose first beneficiary
+    client.propose_beneficiary(&new_sme1, &3600u64);
+    assert!(client.get_beneficiary_proposal().is_some());
+    
+    // Cancel proposal
+    client.cancel_beneficiary_proposal();
+    assert!(client.get_beneficiary_proposal().is_none());
+    
+    // Propose different beneficiary
+    client.propose_beneficiary(&new_sme2, &7200u64);
+    let proposal = client.get_beneficiary_proposal().unwrap();
+    assert_eq!(proposal.proposed_address, new_sme2);
+    assert_eq!(proposal.timelock_duration_secs, 7200);
+}
+
 // --- property-based tests ---
 
 use proptest::prelude::*;
@@ -2477,5 +2843,34 @@ proptest! {
         } else {
             prop_assert_eq!(after_fund.status, 0);
         }
+    }
+
+    #[test]
+    fn prop_beneficiary_rotation_properties(
+        timelock_secs in 0u64..86400u64,
+        ledger_offset in 0u64..172800u64,
+    ) {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let sme = Address::generate(&env);
+        let new_sme = Address::generate(&env);
+        let client = deploy(&env);
+
+        default_init(&client, &env, &admin, &sme);
+        
+        // Propose beneficiary
+        let proposal = client.propose_beneficiary(&new_sme, &timelock_secs);
+        prop_assert_eq!(proposal.proposed_address, new_sme);
+        prop_assert_eq!(proposal.timelock_duration_secs, timelock_secs);
+        
+        // Set ledger time
+        env.ledger().set_timestamp(proposal.proposed_at + ledger_offset);
+        
+        // Check if acceptance is possible
+        let can_accept = client.can_accept_beneficiary();
+        let timelock_expired = ledger_offset >= timelock_secs;
+        
+        prop_assert_eq!(can_accept, timelock_expired, "Acceptance should only be possible after timelock expires");
     }
 }

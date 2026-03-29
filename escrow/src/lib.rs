@@ -124,7 +124,7 @@ pub enum DataKey {
     InvestorClaimNotBefore(Address),
     /// Minimum [`LiquifactEscrow::fund`] / [`LiquifactEscrow::fund_with_commitment`] amount per call (0 = no floor).
     MinContributionFloor,
-    /// When set at [`LiquifactEscrow::init`], caps distinct investor addresses that may contribute (`prev == 0`).
+/// When set at [`LiquifactEscrow::init`], caps distinct investor addresses that may contribute (`prev == 0`).
     MaxUniqueInvestorsCap,
     /// Count of distinct investor addresses that have a non-zero [`DataKey::InvestorContribution`].
     UniqueFunderCount,
@@ -134,6 +134,10 @@ pub enum DataKey {
     /// Append-only audit chain of digests (bounded by [`MAX_ATTESTATION_APPEND_ENTRIES`]).
     /// See [`LiquifactEscrow::append_attestation_digest`].
     AttestationAppendLog,
+    /// Proposed new SME address with timelock metadata (set by admin, accepted by new SME).
+    BeneficiaryProposal,
+    /// Current active SME address (may differ from proposal during timelock period).
+    CurrentSmeAddress,
 }
 
 // --- Data types ---
@@ -202,6 +206,28 @@ pub struct FundingCloseSnapshot {
     pub funding_target: i128,
     pub closed_at_ledger_timestamp: u64,
     pub closed_at_ledger_sequence: u32,
+}
+
+/// Proposed new SME beneficiary with timelock metadata.
+/// Set by admin and accepted by the new SME address to complete rotation.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct BeneficiaryProposal {
+    /// Address that will become the new SME after acceptance and timelock expiry.
+    pub proposed_address: Address,
+    /// Ledger timestamp when the proposal was created.
+    pub proposed_at: u64,
+    /// Minimum delay in seconds before the proposal can be accepted.
+    pub timelock_duration_secs: u64,
+}
+
+/// Current active SME address that can withdraw funds.
+/// May differ from the original SME during timelock period.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct CurrentSmeAddress {
+    /// The currently active SME address that can withdraw funds.
+    pub address: Address,
 }
 
 // --- Events ---
@@ -320,6 +346,35 @@ pub struct AttestationDigestAppended {
     pub invoice_id: Symbol,
     pub index: u32,
     pub digest: BytesN<32>,
+}
+
+/// Beneficiary rotation events
+
+#[contractevent]
+pub struct BeneficiaryProposed {
+    #[topic]
+    pub name: Symbol,
+    pub invoice_id: Symbol,
+    pub proposed_address: Address,
+    pub proposed_at: u64,
+    pub timelock_duration_secs: u64,
+}
+
+#[contractevent]
+pub struct BeneficiaryAccepted {
+    #[topic]
+    pub name: Symbol,
+    pub invoice_id: Symbol,
+    pub new_sme_address: Address,
+    pub accepted_at: u64,
+}
+
+#[contractevent]
+pub struct BeneficiaryCancelled {
+    #[topic]
+    pub name: Symbol,
+    pub invoice_id: Symbol,
+    pub cancelled_at: u64,
 }
 
 #[contract]
@@ -1044,8 +1099,9 @@ impl LiquifactEscrow {
         );
 
         let mut escrow = Self::get_escrow(env.clone());
-
-        escrow.sme_address.require_auth();
+        let current_sme = Self::get_current_sme_address(env.clone());
+        
+        current_sme.require_auth();
         assert!(
             escrow.status == 1,
             "Escrow must be funded before settlement"
@@ -1083,7 +1139,9 @@ impl LiquifactEscrow {
         );
 
         let mut escrow = Self::get_escrow(env.clone());
-        escrow.sme_address.require_auth();
+        let current_sme = Self::get_current_sme_address(env.clone());
+        
+        current_sme.require_auth();
 
         assert!(
             escrow.status == 1,
@@ -1194,6 +1252,186 @@ impl LiquifactEscrow {
         .publish(&env);
 
         escrow
+    }
+
+    /// Propose a new SME beneficiary with timelock.
+    /// 
+    /// Only the current admin can propose a new beneficiary. The proposal includes a timelock
+    /// duration that must pass before the new SME can accept the role.
+    /// 
+    /// # Parameters
+    /// - `proposed_address`: The address that will become the new SME after acceptance and timelock expiry
+    /// - `timelock_duration_secs`: Minimum delay in seconds before the proposal can be accepted
+    /// 
+    /// # Panics
+    /// - If admin is not authorized
+    /// - If proposed address is the same as current SME
+    /// - If timelock duration is zero
+    /// - If there's already an active proposal
+    pub fn propose_beneficiary(
+        env: Env,
+        proposed_address: Address,
+        timelock_duration_secs: u64,
+    ) -> BeneficiaryProposal {
+        let escrow = Self::get_escrow(env.clone());
+        escrow.admin.require_auth();
+
+        assert!(
+            proposed_address != escrow.sme_address,
+            "Proposed address cannot be the same as current SME"
+        );
+        assert!(
+            timelock_duration_secs > 0,
+            "Timelock duration must be greater than zero"
+        );
+
+        // Check if there's already an active proposal
+        assert!(
+            !env.storage().instance().has(&DataKey::BeneficiaryProposal),
+            "There is already an active beneficiary proposal"
+        );
+
+        let now = env.ledger().timestamp();
+        let proposal = BeneficiaryProposal {
+            proposed_address: proposed_address.clone(),
+            proposed_at: now,
+            timelock_duration_secs,
+        };
+
+        env.storage()
+            .instance()
+            .set(&DataKey::BeneficiaryProposal, &proposal);
+
+        BeneficiaryProposed {
+            name: symbol_short!("bene_prop"),
+            invoice_id: escrow.invoice_id.clone(),
+            proposed_address: proposed_address.clone(),
+            proposed_at: now,
+            timelock_duration_secs,
+        }
+        .publish(&env);
+
+        proposal
+    }
+
+    /// Accept a proposed beneficiary role.
+    /// 
+    /// The proposed address must call this function to accept the SME role. The timelock must have
+    /// expired before acceptance is allowed.
+    /// 
+    /// # Panics
+    /// - If caller is not the proposed address
+    /// - If no proposal exists
+    /// - If timelock has not expired
+    pub fn accept_beneficiary(env: Env, caller: Address) -> InvoiceEscrow {
+        let mut escrow = Self::get_escrow(env.clone());
+        caller.require_auth();
+
+        // Check if caller is the proposed address
+        let proposal: BeneficiaryProposal = env
+            .storage()
+            .instance()
+            .get::<DataKey, BeneficiaryProposal>(&DataKey::BeneficiaryProposal)
+            .expect("No beneficiary proposal exists");
+        
+        assert!(
+            caller == proposal.proposed_address,
+            "Only the proposed address can accept the beneficiary role"
+        );
+
+        let now = env.ledger().timestamp();
+        let timelock_expires_at = proposal.proposed_at
+            .checked_add(proposal.timelock_duration_secs)
+            .expect("Timelock expiration overflow");
+
+        assert!(
+            now >= timelock_expires_at,
+            "Timelock has not expired yet"
+        );
+
+        // Update the current SME address
+        escrow.sme_address = proposal.proposed_address.clone();
+        
+        // Store the current SME address for reference
+        env.storage().instance().set(
+            &DataKey::CurrentSmeAddress,
+            &CurrentSmeAddress {
+                address: escrow.sme_address.clone(),
+            },
+        );
+
+        // Remove the proposal
+        env.storage().instance().remove(&DataKey::BeneficiaryProposal);
+
+        env.storage().instance().set(&DataKey::Escrow, &escrow);
+
+        BeneficiaryAccepted {
+            name: symbol_short!("bene_acc"),
+            invoice_id: escrow.invoice_id.clone(),
+            new_sme_address: escrow.sme_address.clone(),
+            accepted_at: now,
+        }
+        .publish(&env);
+
+        escrow
+    }
+
+    /// Cancel an active beneficiary proposal.
+    /// 
+    /// Only the admin can cancel a proposal. This removes the proposal and allows a new one to be made.
+    /// 
+    /// # Panics
+    /// - If admin is not authorized
+    /// - If no proposal exists
+    pub fn cancel_beneficiary_proposal(env: Env) {
+        let escrow = Self::get_escrow(env.clone());
+        escrow.admin.require_auth();
+
+        assert!(
+            env.storage().instance().has(&DataKey::BeneficiaryProposal),
+            "No beneficiary proposal exists to cancel"
+        );
+
+        let now = env.ledger().timestamp();
+        
+        // Remove the proposal
+        env.storage().instance().remove(&DataKey::BeneficiaryProposal);
+
+        BeneficiaryCancelled {
+            name: symbol_short!("bene_can"),
+            invoice_id: escrow.invoice_id.clone(),
+            cancelled_at: now,
+        }
+        .publish(&env);
+    }
+
+    /// Get the current beneficiary proposal, if any.
+    pub fn get_beneficiary_proposal(env: Env) -> Option<BeneficiaryProposal> {
+        env.storage().instance().get(&DataKey::BeneficiaryProposal)
+    }
+
+    /// Get the current active SME address.
+    /// This may be different from the original SME during a timelock period.
+    pub fn get_current_sme_address(env: Env) -> Address {
+        let escrow = Self::get_escrow(env.clone());
+        env.storage()
+            .instance()
+            .get(&DataKey::CurrentSmeAddress)
+            .map(|current: CurrentSmeAddress| current.address)
+            .unwrap_or(escrow.sme_address)
+    }
+
+    /// Check if a beneficiary proposal is active and timelock has expired.
+    pub fn can_accept_beneficiary(env: Env) -> bool {
+        if let Some(proposal) = env.storage().instance().get::<DataKey, BeneficiaryProposal>(&DataKey::BeneficiaryProposal) {
+            let now = env.ledger().timestamp();
+            let timelock_expires_at = proposal.proposed_at
+                .checked_add(proposal.timelock_duration_secs)
+                .expect("Timelock expiration overflow");
+            now >= timelock_expires_at
+        } else {
+            false
+        }
     }
 }
 
