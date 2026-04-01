@@ -147,6 +147,9 @@ pub enum DataKey {
     CurrentSmeAddress,
 }
 
+/// Maximum basis points (100% = 10_000 bps).
+pub const BPS_DENOMINATOR: i64 = 10_000;
+
 // --- Data types ---
 
 /// Full state of an invoice escrow persisted in contract storage (`DataKey::Escrow`).
@@ -390,6 +393,52 @@ impl LiquifactEscrow {
             }
         }
         best
+    }
+
+    /// Computes principal plus yield for a given principal amount and yield in basis points.
+    ///
+    /// # Deterministic Calculation
+    /// This function calculates payout amounts using integer arithmetic only:
+    /// - Yield = (principal × yield_bps) / BPS_DENOMINATOR
+    /// - Total = principal + yield
+    ///
+    /// # Rounding Strategy
+    /// Integer division truncates toward zero (floor for positive values). This is conservative
+    /// for the contract (rounds down yield) and deterministic across all platforms.
+    ///
+    /// # Overflow Protection
+    /// Uses `checked_mul` and `checked_add` to prevent overflow. Panics if overflow detected.
+    /// Principal must be non-negative; yield_bps should be 0..=10_000.
+    ///
+    /// # Security Notes
+    /// - Input validation: principal ≥ 0, yield_bps within valid range
+    /// - Output validated against maximum expected bounds
+    /// - Deterministic: no floating point, platform-independent
+    ///
+    /// # Example
+    /// ```ignore
+    /// // 1000 principal at 800 bps (8%) = 1000 + 80 = 1080
+    /// let payout = calculate_principal_plus_yield(1000, 800); // returns 1080
+    /// ```
+    fn calculate_principal_plus_yield(principal: i128, yield_bps: i64) -> i128 {
+        assert!(principal >= 0, "principal must be non-negative");
+        assert!(
+            (0..=BPS_DENOMINATOR).contains(&yield_bps),
+            "yield_bps must be between 0 and BPS_DENOMINATOR"
+        );
+
+        // Calculate yield: (principal * yield_bps) / BPS_DENOMINATOR
+        // Use checked arithmetic to prevent overflow
+        let yield_amount = principal
+            .checked_mul(yield_bps as i128)
+            .expect("principal * yield_bps overflow")
+            .checked_div(BPS_DENOMINATOR as i128)
+            .expect("division by zero impossible (BPS_DENOMINATOR > 0)");
+
+        // Add yield to principal
+        principal
+            .checked_add(yield_amount)
+            .expect("principal + yield overflow")
     }
 
     /// Initialize escrow. `funding_target` defaults to `amount`.

@@ -1786,6 +1786,180 @@ fn test_append_attestation_respects_max_length() {
 
 use proptest::prelude::*;
 
+// --- Deterministic Yield Calculation Tests ---
+
+#[test]
+fn test_calculate_principal_plus_yield_zero_yield() {
+    // Edge case: 0 bps yield should return principal unchanged
+    let result = LiquifactEscrow::calculate_principal_plus_yield(1000i128, 0i64);
+    assert_eq!(result, 1000i128);
+}
+
+#[test]
+fn test_calculate_principal_plus_yield_hundred_percent() {
+    // Edge case: 10_000 bps (100%) should double the principal
+    let result = LiquifactEscrow::calculate_principal_plus_yield(5000i128, 10_000i64);
+    assert_eq!(result, 10_000i128);
+}
+
+#[test]
+fn test_calculate_principal_plus_yield_typical_case() {
+    // Typical case: 800 bps (8%) on 10,000 = 10,000 + 800 = 10,800
+    let result = LiquifactEscrow::calculate_principal_plus_yield(10_000i128, 800i64);
+    assert_eq!(result, 10_800i128);
+}
+
+#[test]
+fn test_calculate_principal_plus_yield_rounding_down() {
+    // Rounding test: 100 at 1 bps = 0.1, rounds down to 0
+    let result = LiquifactEscrow::calculate_principal_plus_yield(100i128, 1i64);
+    assert_eq!(result, 100i128);
+
+    // 1000 at 1 bps = 0.1, rounds down to 0
+    let result = LiquifactEscrow::calculate_principal_plus_yield(1000i128, 1i64);
+    assert_eq!(result, 1000i128);
+
+    // 10000 at 1 bps = 1.0, exact
+    let result = LiquifactEscrow::calculate_principal_plus_yield(10_000i128, 1i64);
+    assert_eq!(result, 10_001i128);
+}
+
+#[test]
+fn test_calculate_principal_plus_yield_large_amounts() {
+    // Large amount: 1M at 500 bps (5%) = 1M + 50k = 1.05M
+    let result = LiquifactEscrow::calculate_principal_plus_yield(1_000_000i128, 500i64);
+    assert_eq!(result, 1_050_000i128);
+
+    // Very large amount within i128 range
+    let principal = 1_000_000_000_000i128; // 1 trillion
+    let yield_bps = 100i64; // 1%
+    let expected = principal + (principal / 100); // 1% yield
+    let result = LiquifactEscrow::calculate_principal_plus_yield(principal, yield_bps);
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn test_calculate_principal_plus_yield_fractional_bps() {
+    // Test various basis point percentages
+    let principal = 100_000i128;
+
+    // 100 bps = 1%
+    let result = LiquifactEscrow::calculate_principal_plus_yield(principal, 100i64);
+    assert_eq!(result, 101_000i128);
+
+    // 250 bps = 2.5%
+    let result = LiquifactEscrow::calculate_principal_plus_yield(principal, 250i64);
+    assert_eq!(result, 102_500i128);
+
+    // 750 bps = 7.5%
+    let result = LiquifactEscrow::calculate_principal_plus_yield(principal, 750i64);
+    assert_eq!(result, 107_500i128);
+}
+
+#[test]
+fn test_calculate_principal_plus_yield_zero_principal() {
+    // Edge case: zero principal should return zero
+    let result = LiquifactEscrow::calculate_principal_plus_yield(0i128, 800i64);
+    assert_eq!(result, 0i128);
+}
+
+#[test]
+#[should_panic(expected = "principal must be non-negative")]
+fn test_calculate_principal_plus_yield_negative_principal_panics() {
+    // Should panic with negative principal
+    LiquifactEscrow::calculate_principal_plus_yield(-1i128, 800i64);
+}
+
+#[test]
+#[should_panic(expected = "yield_bps must be between 0 and BPS_DENOMINATOR")]
+fn test_calculate_principal_plus_yield_negative_bps_panics() {
+    // Should panic with negative bps
+    LiquifactEscrow::calculate_principal_plus_yield(1000i128, -1i64);
+}
+
+#[test]
+#[should_panic(expected = "yield_bps must be between 0 and BPS_DENOMINATOR")]
+fn test_calculate_principal_plus_yield_excessive_bps_panics() {
+    // Should panic with bps > 10_000
+    LiquifactEscrow::calculate_principal_plus_yield(1000i128, 10_001i64);
+}
+
+#[test]
+fn test_calculate_principal_plus_yield_boundary_values() {
+    // Test at boundary: exactly 10_000 bps (100%)
+    let result = LiquifactEscrow::calculate_principal_plus_yield(500i128, 10_000i64);
+    assert_eq!(result, 1000i128);
+
+    // Test at boundary: exactly 0 bps
+    let result = LiquifactEscrow::calculate_principal_plus_yield(500i128, 0i64);
+    assert_eq!(result, 500i128);
+}
+
+#[test]
+fn test_calculate_principal_plus_yield_deterministic() {
+    // Verify deterministic behavior: same inputs always produce same outputs
+    for _ in 0..10 {
+        let result1 = LiquifactEscrow::calculate_principal_plus_yield(12_345i128, 678i64);
+        let result2 = LiquifactEscrow::calculate_principal_plus_yield(12_345i128, 678i64);
+        assert_eq!(result1, result2);
+    }
+}
+
+proptest! {
+    #[test]
+    fn prop_yield_calculation_monotonic(
+        principal in 0i128..1_000_000_000i128,
+        yield_bps_low in 0i64..5_000i64,
+        delta in 1i64..5_000i64,
+    ) {
+        // Higher yield_bps should always produce higher or equal payout
+        let yield_bps_high = yield_bps_low.saturating_add(delta).min(10_000);
+
+        let payout_low = LiquifactEscrow::calculate_principal_plus_yield(principal, yield_bps_low);
+        let payout_high = LiquifactEscrow::calculate_principal_plus_yield(principal, yield_bps_high);
+
+        prop_assert!(payout_high >= payout_low, "higher yield_bps should produce higher or equal payout");
+    }
+
+    #[test]
+    fn prop_yield_calculation_linear(
+        principal in 1i128..1_000_000i128,
+        yield_bps in 0i64..10_000i64,
+        scalar in 1i128..100i128,
+    ) {
+        // Scaling principal by scalar should scale payout proportionally (accounting for rounding)
+        let scaled_principal = principal.saturating_mul(scalar);
+        if scaled_principal < 0 {
+            // Skip on overflow
+            return Ok(());
+        }
+
+        let payout_base = LiquifactEscrow::calculate_principal_plus_yield(principal, yield_bps);
+        let payout_scaled = LiquifactEscrow::calculate_principal_plus_yield(scaled_principal, yield_bps);
+
+        // Allow small rounding error due to integer division truncation
+        let expected_scaled = payout_base.saturating_mul(scalar);
+        let diff = if payout_scaled > expected_scaled {
+            payout_scaled - expected_scaled
+        } else {
+            expected_scaled - payout_scaled
+        };
+
+        // Rounding error should be less than scalar (one per multiplication)
+        prop_assert!(diff < scalar as i128, "scaling should be approximately linear");
+    }
+
+    #[test]
+    fn prop_yield_calculation_never_reduces_principal(
+        principal in 0i128..10_000_000i128,
+        yield_bps in 0i64..10_000i64,
+    ) {
+        // Payout should always be >= principal (yield is non-negative)
+        let payout = LiquifactEscrow::calculate_principal_plus_yield(principal, yield_bps);
+        prop_assert!(payout >= principal, "payout should never be less than principal");
+    }
+}
+
 proptest! {
     #[test]
     fn prop_funded_amount_non_decreasing(

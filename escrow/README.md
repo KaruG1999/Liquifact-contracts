@@ -2,6 +2,31 @@
 
 Soroban escrow for invoice funding, settlement, and investor claims. This README adds **formal invariant stubs** (machine-readable IDs plus math-style properties), **test traceability**, **attestation hashing**, **minimum contribution floors**, and **unique investor caps** (issues #102–#105).
 
+## Deterministic Yield Calculation
+
+The contract provides a dedicated helper function `calculate_principal_plus_yield(principal, yield_bps)` for computing payout amounts:
+
+- **Formula**: `payout = principal + (principal × yield_bps) / 10_000`
+- **Rounding**: Integer division truncates toward zero (floor for positive values), conservative for the contract
+- **Overflow Protection**: Uses checked arithmetic with explicit panics on overflow
+- **Validation**: Asserts principal ≥ 0 and yield_bps ∈ [0, 10_000]
+- **Determinism**: Pure integer math ensures identical results across all platforms
+
+### Usage Example
+
+```rust
+// 10,000 at 800 bps (8%) = 10,800
+let payout = calculate_principal_plus_yield(10_000i128, 800i64);
+assert_eq!(payout, 10_800i128);
+```
+
+### Security Properties
+
+- No floating-point arithmetic (avoids precision issues)
+- Input validation prevents invalid parameters
+- Checked multiplication and addition prevent overflow
+- Conservative rounding (truncation) protects contract solvency
+
 ## Formal invariant specification (stubs)
 
 Intended for auditors, formal-methods tooling, and regression design. Properties are stated over escrow state unless noted. Status codes: `0=open`, `1=funded`, `2=settled`, `3=withdrawn`.
