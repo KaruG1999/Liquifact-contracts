@@ -632,3 +632,173 @@ fn test_ledger_sequence_recorded_in_snapshot_with_tick() {
     let snap = client.get_funding_close_snapshot().unwrap();
     assert_eq!(snap.closed_at_ledger_sequence, seq);
 }
+
+// --- get_investor_yield_bps tests (issue #189) ---
+
+#[test]
+fn test_get_investor_yield_bps_defaults_to_base_when_unset() {
+    let env = Env::default();
+    let (client, admin, sme) = setup(&env);
+    let investor = Address::generate(&env);
+    let (tok, tre) = free_addresses(&env);
+    client.init(
+        &admin,
+        &String::from_str(&env, "INV_YLD"),
+        &sme,
+        &TARGET,
+        &800i64,
+        &0u64,
+        &tok,
+        &None,
+        &tre,
+        &None,
+        &None,
+        &None,
+    );
+    client.fund(&investor, &TARGET);
+    assert_eq!(client.get_investor_yield_bps(&investor), 800);
+}
+
+#[test]
+fn test_get_investor_yield_bps_returns_base_for_zero_lock_commitment() {
+    let env = Env::default();
+    let (client, admin, sme) = setup(&env);
+    let investor = Address::generate(&env);
+    let (tok, tre) = free_addresses(&env);
+    let mut tiers = SorobanVec::new(&env);
+    tiers.push_back(YieldTier {
+        min_lock_secs: 2592000,
+        yield_bps: 1200,
+    });
+    client.init(
+        &admin,
+        &String::from_str(&env, "INV_YLD"),
+        &sme,
+        &TARGET,
+        &800i64,
+        &0u64,
+        &tok,
+        &None,
+        &tre,
+        &Some(tiers),
+        &None,
+        &None,
+    );
+    client.fund_with_commitment(&investor, &TARGET, &0u64);
+    assert_eq!(client.get_investor_yield_bps(&investor), 800);
+}
+
+#[test]
+fn test_get_investor_yield_bps_returns_tier_yield_after_fund_with_commitment() {
+    let env = Env::default();
+    let (client, admin, sme) = setup(&env);
+    let investor = Address::generate(&env);
+    let (tok, tre) = free_addresses(&env);
+    let mut tiers = SorobanVec::new(&env);
+    tiers.push_back(YieldTier {
+        min_lock_secs: 2592000,
+        yield_bps: 1200,
+    });
+    client.init(
+        &admin,
+        &String::from_str(&env, "INV_YLD"),
+        &sme,
+        &TARGET,
+        &800i64,
+        &0u64,
+        &tok,
+        &None,
+        &tre,
+        &Some(tiers),
+        &None,
+        &None,
+    );
+    client.fund_with_commitment(&investor, &TARGET, &2592000u64);
+    assert_eq!(client.get_investor_yield_bps(&investor), 1200);
+}
+
+#[test]
+fn test_get_investor_yield_bps_unchanged_after_follow_on_fund() {
+    let env = Env::default();
+    let (client, admin, sme) = setup(&env);
+    let investor = Address::generate(&env);
+    let (tok, tre) = free_addresses(&env);
+    let mut tiers = SorobanVec::new(&env);
+    tiers.push_back(YieldTier {
+        min_lock_secs: 2592000,
+        yield_bps: 1200,
+    });
+    client.init(
+        &admin,
+        &String::from_str(&env, "INV_YLD"),
+        &sme,
+        &TARGET,
+        &800i64,
+        &0u64,
+        &tok,
+        &None,
+        &tre,
+        &Some(tiers),
+        &None,
+        &None,
+    );
+    client.fund_with_commitment(&investor, &(TARGET / 2), &2592000u64);
+    assert_eq!(client.get_investor_yield_bps(&investor), 1200);
+    client.fund(&investor, &(TARGET / 2));
+    assert_eq!(client.get_investor_yield_bps(&investor), 1200);
+}
+
+#[test]
+fn test_get_investor_yield_bps_independent_per_investor() {
+    let env = Env::default();
+    let (client, admin, sme) = setup(&env);
+    let inv_a = Address::generate(&env);
+    let inv_b = Address::generate(&env);
+    let (tok, tre) = free_addresses(&env);
+    let mut tiers = SorobanVec::new(&env);
+    tiers.push_back(YieldTier {
+        min_lock_secs: 2592000,
+        yield_bps: 1200,
+    });
+    client.init(
+        &admin,
+        &String::from_str(&env, "INV_YLD"),
+        &sme,
+        &TARGET,
+        &800i64,
+        &0u64,
+        &tok,
+        &None,
+        &tre,
+        &Some(tiers),
+        &None,
+        &None,
+    );
+    client.fund_with_commitment(&inv_a, &(TARGET / 2), &2592000u64);
+    client.fund(&inv_b, &(TARGET / 2));
+    assert_eq!(client.get_investor_yield_bps(&inv_a), 1200);
+    assert_eq!(client.get_investor_yield_bps(&inv_b), 800);
+}
+
+#[test]
+fn test_get_investor_yield_bps_returns_base_for_unknown_investor() {
+    let env = Env::default();
+    let (client, admin, sme) = setup(&env);
+    let (tok, tre) = free_addresses(&env);
+    let stranger = Address::generate(&env);
+    client.init(
+        &admin,
+        &String::from_str(&env, "INV_YLD"),
+        &sme,
+        &TARGET,
+        &800i64,
+        &0u64,
+        &tok,
+        &None,
+        &tre,
+        &None,
+        &None,
+        &None,
+    );
+    assert_eq!(client.get_investor_yield_bps(&stranger), 800);
+}
