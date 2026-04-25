@@ -20,7 +20,7 @@
 use super::{default_init, deploy, free_addresses, setup, TARGET};
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger as _},
-    Address, Env,
+    Address, Env, String,
 };
 
 // ──────────────────────────────────────────────────────────────────────────────
