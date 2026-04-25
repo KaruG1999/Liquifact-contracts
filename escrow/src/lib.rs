@@ -92,49 +92,76 @@ pub const MAX_INVOICE_ID_STRING_LEN: u32 = 32;
 
 #[contracttype]
 #[derive(Clone)]
-/// Storage discriminator for all persisted values.
+/// Storage discriminator for all persisted values in Soroban instance storage.
+///
+/// Every variant maps to a distinct XDR-encoded key in the contract’s instance storage map.
+/// Optional and per-address keys are always read with `.get(...).unwrap_or(default)` so that
+/// deployments predating a key behave as “unset / default” without panicking.
+///
+/// ## Additive-key policy (see ADR-007)
+///
+/// Adding a new variant is **backward-compatible** when the new key is read with
+/// `.unwrap_or(default)` and its absence does not change existing entrypoint semantics.
+/// Renaming a variant, changing its XDR discriminant, or altering the stored type of an
+/// existing key is **breaking** and requires a `migrate` path or a full redeploy.
 ///
 /// Derive rationale:
 /// - `Clone`: required because keys are passed by reference into storage APIs and reused
 ///   across lookups/sets in the same execution path.
 pub enum DataKey {
+    /// Full escrow snapshot ([`InvoiceEscrow`]); rewritten atomically on every state transition.
     Escrow,
+    /// Stored schema version (`u32`); written as [`SCHEMA_VERSION`] at `init`.
+    /// Incremented only when a `migrate` path is added; additive-only releases leave it unchanged.
     Version,
     /// Per-investor contributed principal recorded during [`LiquifactEscrow::fund`].
+    /// Absent ⇒ `0`. One entry per investor address.
     InvestorContribution(Address),
     /// When true, compliance/legal hold blocks payouts and settlement finalization.
+    /// Absent ⇒ `false` (no hold). Toggled by admin via [`LiquifactEscrow::set_legal_hold`].
     LegalHold,
     /// Optional SME collateral pledge metadata (record-only — not an on-chain asset lock).
+    /// Absent when no pledge has been recorded. Replaceable by the SME.
     SmeCollateralPledge,
-    /// Set when an investor has exercised a claim after settlement.
+    /// Set to `true` when an investor has exercised a claim after settlement.
+    /// Absent ⇒ `false`. Written once; a second claim panics.
     InvestorClaimed(Address),
     /// SEP-41 funding asset for this invoice instance; set once in [`LiquifactEscrow::init`].
+    /// Immutable after init.
     FundingToken,
     /// Protocol treasury that may receive [`LiquifactEscrow::sweep_terminal_dust`]; set once in init.
+    /// Immutable after init.
     Treasury,
     /// Optional registry contract id for indexers; **hint only**, not authority (see module rustdoc).
-    /// Omitted from storage when unset at init.
+    /// Omitted from storage when unset at init. Absent ⇒ `None`.
     RegistryRef,
     /// Immutable tier table when configured at [`LiquifactEscrow::init`]; omitted when tiering is off.
+    /// Absent ⇒ no tiering (base `yield_bps` applies to all investors).
     /// **Trust:** values are protocol-supplied at deploy; the contract never mutates this key after init.
     YieldTierTable,
     /// Set once when status first becomes **funded** (1); immutable thereafter (pro-rata denominator).
+    /// Absent until the escrow reaches `status == 1`. See [`FundingCloseSnapshot`].
     FundingCloseSnapshot,
     /// Effective annualized yield in bps chosen at this investor’s **first** deposit (see tiered yield).
+    /// Absent ⇒ falls back to [`InvoiceEscrow::yield_bps`]. One entry per investor address.
     InvestorEffectiveYield(Address),
     /// Minimum [`Env::ledger`] timestamp before [`LiquifactEscrow::claim_investor_payout`] (0 = no extra gate).
+    /// Absent ⇒ `0`. One entry per investor address; set on first deposit.
     InvestorClaimNotBefore(Address),
     /// Minimum [`LiquifactEscrow::fund`] / [`LiquifactEscrow::fund_with_commitment`] amount per call (0 = no floor).
+    /// Written as `0` even when unconfigured so reads always succeed.
     MinContributionFloor,
-    /// When set at [`LiquifactEscrow::init`], caps distinct investor addresses that may contribute (`prev == 0`).
+    /// When set at [`LiquifactEscrow::init`], caps distinct investor addresses that may contribute.
+    /// Absent ⇒ unlimited. Checked against [`DataKey::UniqueFunderCount`] on each new investor.
     MaxUniqueInvestorsCap,
     /// Count of distinct investor addresses that have a non-zero [`DataKey::InvestorContribution`].
+    /// Written as `0` at init; incremented once per new investor in `fund_impl`.
     UniqueFunderCount,
     /// Admin-only **single-set** off-chain attestation digest (e.g. SHA-256 of a legal/KYC bundle).
-    /// See [`LiquifactEscrow::bind_primary_attestation_hash`].
+    /// Absent until [`LiquifactEscrow::bind_primary_attestation_hash`] is called; single-set thereafter.
     PrimaryAttestationHash,
     /// Append-only audit chain of digests (bounded by [`MAX_ATTESTATION_APPEND_ENTRIES`]).
-    /// See [`LiquifactEscrow::append_attestation_digest`].
+    /// Absent ⇒ empty log. See [`LiquifactEscrow::append_attestation_digest`].
     AttestationAppendLog,
 }
 
