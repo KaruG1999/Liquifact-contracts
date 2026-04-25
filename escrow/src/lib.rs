@@ -161,6 +161,10 @@ pub enum DataKey {
     /// Append-only audit chain of digests (bounded by [`MAX_ATTESTATION_APPEND_ENTRIES`]).
     /// See [`LiquifactEscrow::append_attestation_digest`].
     AttestationAppendLog,
+    /// When true, only allowlisted addresses may call [`LiquifactEscrow::fund`] or [`LiquifactEscrow::fund_with_commitment`].
+    AllowlistActive,
+    /// Whether a specific address is permitted to fund when [`DataKey::AllowlistActive`] is true.
+    InvestorAllowlisted(Address),
 }
 
 // --- Data types ---
@@ -348,6 +352,25 @@ pub struct AttestationDigestAppended {
     pub invoice_id: Symbol,
     pub index: u32,
     pub digest: BytesN<32>,
+}
+
+#[contractevent]
+pub struct AllowlistEnabledChanged {
+    #[topic]
+    pub name: Symbol,
+    pub invoice_id: Symbol,
+    /// `1` = enabled, `0` = disabled.
+    pub active: u32,
+}
+
+#[contractevent]
+pub struct InvestorAllowlistChanged {
+    #[topic]
+    pub name: Symbol,
+    pub invoice_id: Symbol,
+    pub investor: Address,
+    /// `1` = allowed, `0` = blocked.
+    pub allowed: u32,
 }
 
 #[contract]
@@ -858,6 +881,53 @@ impl LiquifactEscrow {
         .publish(&env);
     }
 
+    /// Enable or disable the investor allowlist. When enabled, only addresses with
+    /// [`DataKey::InvestorAllowlisted`] set to true may fund the escrow.
+    pub fn set_allowlist_active(env: Env, active: bool) {
+        let escrow = Self::get_escrow(env.clone());
+        escrow.admin.require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::AllowlistActive, &active);
+        AllowlistEnabledChanged {
+            name: symbol_short!("al_ena"),
+            invoice_id: escrow.invoice_id.clone(),
+            active: if active { 1 } else { 0 },
+        }
+        .publish(&env);
+    }
+
+    pub fn is_allowlist_active(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::AllowlistActive)
+            .unwrap_or(false)
+    }
+
+    /// Add or remove an investor from the allowlist.
+    pub fn set_investor_allowlisted(env: Env, investor: Address, allowed: bool) {
+        let escrow = Self::get_escrow(env.clone());
+        escrow.admin.require_auth();
+        env.storage()
+            .persistent()
+            .set(&DataKey::InvestorAllowlisted(investor.clone()), &allowed);
+
+        InvestorAllowlistChanged {
+            name: symbol_short!("al_set"),
+            invoice_id: escrow.invoice_id.clone(),
+            investor,
+            allowed: if allowed { 1 } else { 0 },
+        }
+        .publish(&env);
+    }
+
+    pub fn is_investor_allowlisted(env: Env, investor: Address) -> bool {
+        env.storage()
+            .persistent()
+            .get(&DataKey::InvestorAllowlisted(investor))
+            .unwrap_or(false)
+    }
+
     /// Convenience alias for [`LiquifactEscrow::set_legal_hold`] with `active = false`.
     pub fn clear_legal_hold(env: Env) {
         Self::set_legal_hold(env, false);
@@ -994,6 +1064,13 @@ impl LiquifactEscrow {
             "Legal hold blocks new funding while active"
         );
         assert!(escrow.status == 0, "Escrow not open for funding");
+
+        if Self::is_allowlist_active(env.clone()) {
+            assert!(
+                Self::is_investor_allowlisted(env.clone(), investor.clone()),
+                "Investor not on allowlist"
+            );
+        }
 
         let contribution_key = DataKey::InvestorContribution(investor.clone());
         let prev: i128 = env.storage().instance().get(&contribution_key).unwrap_or(0);
@@ -1273,3 +1350,5 @@ impl LiquifactEscrow {
 
 #[cfg(test)]
 mod test;
+#[cfg(test)]
+mod test_allowlist;
