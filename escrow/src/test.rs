@@ -48,7 +48,7 @@ pub(super) fn default_init(
         sme,
         &10_000_0000000i128,
         &800i64,
-        &1000u64,
+        &0u64,
         &token,
         &None,
         &treasury,

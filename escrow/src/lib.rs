@@ -1131,6 +1131,10 @@ impl LiquifactEscrow {
             "Investor commitment lock not expired (ledger timestamp)"
         );
 
+        // Investor must have participated (non-zero contribution) to claim.
+        let contribution: i128 = Self::get_contribution(env.clone(), investor.clone());
+        assert!(contribution > 0, "Investor did not participate");
+
         let key = DataKey::InvestorClaimed(investor.clone());
         assert!(
             !env.storage().instance().get(&key).unwrap_or(false),
