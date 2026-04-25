@@ -430,13 +430,26 @@ docker run --rm -v $(pwd):/workspace -w /workspace rust:latest cargo build
 
 The GitHub Actions workflow runs format, build, tests, and **≥ 95% line coverage** via `cargo llvm-cov`.
 
-## Test output (local)
-
-Run:
+Run these locally before pushing:
 
 ```bash
+cargo fmt --all -- --check
+cargo clippy -p liquifact_escrow -- -D warnings
+cargo build --target wasm32v1-none --release -p liquifact_escrow
 cargo test -p liquifact_escrow
 cargo llvm-cov --features testutils --fail-under-lines 95 --summary-only -p liquifact_escrow
 ```
 
-All tests should pass; coverage summary should meet the threshold (recent run: total line cover ~99% for this crate).
+## Security review sign-off checklist (pre-deploy)
+
+Use as a human gate; not a substitute for professional audit.
+
+- [ ] `admin` is a multisig or governed contract (legal hold and attestation are admin-gated).
+- [ ] Escrow has a **single-initialization guard** to prevent re-initialization after deployment.
+- [ ] Funding token is standard SEP-41; fee-on-transfer tokens are out of scope (see module docs and `docs/ESCROW_TOKEN_INTEGRATION_CHECKLIST.md`).
+- [ ] `min_contribution` and `max_unique_investors` match the legal offering (floor vs. target; cap is per-address, not KYC’d entity).
+- [ ] Attestation digests match the intended off-chain bundle (hash algorithm and canonical encoding documented off-chain).
+- [ ] Maturity and claim-lock semantics use ledger time only (see `lib.rs` rustdoc).
+- [ ] `migrate` is understood to panic on all paths; redeploy policy is confirmed.
+- [ ] CI: `cargo fmt --all -- --check`, `cargo test`, `cargo llvm-cov --features testutils --fail-under-lines 95` pass.
+
