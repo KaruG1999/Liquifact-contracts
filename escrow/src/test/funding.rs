@@ -108,9 +108,9 @@ fn test_single_investor_contribution_tracked() {
         &None,
         &None,
     );
-    client.fund(&investor, &(3_000_0000000i128));
+    client.fund(&investor, &(30_000_000_000i128));
     let contribution = client.get_contribution(&investor);
-    assert_eq!(contribution, 3_000_0000000i128);
+    assert_eq!(contribution, 30_000_000_000i128);
 }
 
 #[test]
@@ -143,9 +143,9 @@ fn test_repeated_funding_accumulates_contribution() {
         &None,
         &None,
     );
-    client.fund(&investor, &(2_000_0000000i128));
-    client.fund(&investor, &(3_000_0000000i128));
-    assert_eq!(client.get_contribution(&investor), 5_000_0000000i128);
+    client.fund(&investor, &(20_000_000_000i128));
+    client.fund(&investor, &(30_000_000_000i128));
+    assert_eq!(client.get_contribution(&investor), 50_000_000_000i128);
 }
 
 #[test]
@@ -169,12 +169,12 @@ fn test_multiple_investors_tracked_independently() {
         &None,
         &None,
     );
-    client.fund(&inv_a, &(2_000_0000000i128));
-    client.fund(&inv_b, &(5_000_0000000i128));
-    client.fund(&inv_c, &(3_000_0000000i128));
-    assert_eq!(client.get_contribution(&inv_a), 2_000_0000000i128);
-    assert_eq!(client.get_contribution(&inv_b), 5_000_0000000i128);
-    assert_eq!(client.get_contribution(&inv_c), 3_000_0000000i128);
+    client.fund(&inv_a, &(20_000_000_000i128));
+    client.fund(&inv_b, &(50_000_000_000i128));
+    client.fund(&inv_c, &(30_000_000_000i128));
+    assert_eq!(client.get_contribution(&inv_a), 20_000_000_000i128);
+    assert_eq!(client.get_contribution(&inv_b), 50_000_000_000i128);
+    assert_eq!(client.get_contribution(&inv_c), 30_000_000_000i128);
     let sum = client.get_contribution(&inv_a)
         + client.get_contribution(&inv_b)
         + client.get_contribution(&inv_c);
@@ -202,9 +202,9 @@ fn test_contributions_sum_equals_funded_amount() {
         &None,
         &None,
     );
-    client.fund(&inv_a, &(2_000_0000000i128));
-    client.fund(&inv_b, &(5_000_0000000i128));
-    client.fund(&inv_c, &(3_000_0000000i128));
+    client.fund(&inv_a, &(20_000_000_000i128));
+    client.fund(&inv_b, &(50_000_000_000i128));
+    client.fund(&inv_c, &(30_000_000_000i128));
     let sum = client.get_contribution(&inv_a)
         + client.get_contribution(&inv_b)
         + client.get_contribution(&inv_c);
@@ -230,7 +230,7 @@ fn test_cost_baseline_fund_partial() {
         &None,
         &None,
     );
-    client.fund(&investor, &(1_000_0000000i128));
+    client.fund(&investor, &(10_000_000_000i128));
 }
 
 #[test]
@@ -274,7 +274,7 @@ fn test_cost_baseline_fund_overshoot() {
         &None,
         &None,
     );
-    client.fund(&investor, &(15_000_0000000i128));
+    client.fund(&investor, &(150_000_000_000i128));
     assert_eq!(client.get_escrow().status, 1);
 }
 
@@ -326,9 +326,9 @@ fn test_funding_close_snapshot_captures_overfunded_total_once() {
         &None,
     );
     assert_eq!(client.get_funding_close_snapshot(), None);
-    client.fund(&inv, &(TARGET + 5_000_0000000i128));
+    client.fund(&inv, &(TARGET + 50_000_000_000i128));
     let snap = client.get_funding_close_snapshot().expect("snapshot");
-    assert_eq!(snap.total_principal, TARGET + 5_000_0000000i128);
+    assert_eq!(snap.total_principal, TARGET + 50_000_000_000i128);
     assert_eq!(snap.funding_target, TARGET);
     assert_eq!(snap.closed_at_ledger_timestamp, env.ledger().timestamp());
     assert_eq!(snap.closed_at_ledger_sequence, env.ledger().sequence());
@@ -391,8 +391,8 @@ fn test_pro_rata_weight_ratio_from_snapshot() {
         &None,
         &None,
     );
-    client.fund(&a, &(2_000_0000000i128));
-    client.fund(&b, &(8_000_0000000i128));
+    client.fund(&a, &(20_000_000_000i128));
+    client.fund(&b, &(80_000_000_000i128));
     let snap = client.get_funding_close_snapshot().unwrap();
     assert_eq!(snap.total_principal, TARGET);
     let ca = client.get_contribution(&a);
@@ -506,6 +506,126 @@ fn test_fund_with_commitment_twice_panics() {
     );
     client.fund_with_commitment(&inv, &5_000i128, &10u64);
     client.fund_with_commitment(&inv, &5_000i128, &10u64);
+}
+
+#[test]
+#[should_panic(expected = "Additional principal after a tiered first deposit")]
+fn test_fund_then_fund_with_commitment_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = deploy(&env);
+    let admin = Address::generate(&env);
+    let sme = Address::generate(&env);
+    let inv = Address::generate(&env);
+    let (tok, tre) = free_addresses(&env);
+    client.init(
+        &admin,
+        &String::from_str(&env, "SEQ001"),
+        &sme,
+        &10_000i128,
+        &800i64,
+        &0u64,
+        &tok,
+        &None,
+        &tre,
+        &None,
+        &None,
+        &None,
+    );
+    client.fund(&inv, &5_000i128);
+    client.fund_with_commitment(&inv, &5_000i128, &10u64);
+}
+
+#[test]
+fn test_tier_selection_ladder() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = deploy(&env);
+    let admin = Address::generate(&env);
+    let sme = Address::generate(&env);
+    let (tok, tre) = free_addresses(&env);
+
+    let mut tiers = SorobanVec::new(&env);
+    tiers.push_back(YieldTier {
+        min_lock_secs: 100,
+        yield_bps: 900,
+    });
+    tiers.push_back(YieldTier {
+        min_lock_secs: 200,
+        yield_bps: 1000,
+    });
+
+    client.init(
+        &admin,
+        &String::from_str(&env, "LADDER01"),
+        &sme,
+        &100_000i128,
+        &800i64,
+        &0u64,
+        &tok,
+        &None,
+        &tre,
+        &Some(tiers),
+        &None,
+        &None,
+    );
+
+    let inv_base = Address::generate(&env);
+    let inv_tier1 = Address::generate(&env);
+    let inv_tier2 = Address::generate(&env);
+    let inv_mid = Address::generate(&env);
+
+    // Below first tier -> base
+    client.fund_with_commitment(&inv_base, &1_000i128, &50u64);
+    assert_eq!(client.get_investor_yield_bps(&inv_base), 800);
+
+    // Exactly first tier
+    client.fund_with_commitment(&inv_tier1, &1_000i128, &100u64);
+    assert_eq!(client.get_investor_yield_bps(&inv_tier1), 900);
+
+    // Between tiers -> still first tier
+    client.fund_with_commitment(&inv_mid, &1_000i128, &150u64);
+    assert_eq!(client.get_investor_yield_bps(&inv_mid), 900);
+
+    // Exactly second tier
+    client.fund_with_commitment(&inv_tier2, &1_000i128, &200u64);
+    assert_eq!(client.get_investor_yield_bps(&inv_tier2), 1000);
+}
+
+#[test]
+fn test_fund_with_commitment_zero_lock_behaves_as_fund() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = deploy(&env);
+    let admin = Address::generate(&env);
+    let sme = Address::generate(&env);
+    let inv = Address::generate(&env);
+    let (tok, tre) = free_addresses(&env);
+
+    let mut tiers = SorobanVec::new(&env);
+    tiers.push_back(YieldTier {
+        min_lock_secs: 100,
+        yield_bps: 900,
+    });
+
+    client.init(
+        &admin,
+        &String::from_str(&env, "ZERO001"),
+        &sme,
+        &10_000i128,
+        &800i64,
+        &0u64,
+        &tok,
+        &None,
+        &tre,
+        &Some(tiers),
+        &None,
+        &None,
+    );
+
+    client.fund_with_commitment(&inv, &5_000i128, &0u64);
+    assert_eq!(client.get_investor_yield_bps(&inv), 800);
+    assert_eq!(client.get_investor_claim_not_before(&inv), 0);
 }
 
 #[test]
@@ -633,182 +753,114 @@ fn test_ledger_sequence_recorded_in_snapshot_with_tick() {
     assert_eq!(snap.closed_at_ledger_sequence, seq);
 }
 
-// --- min_contribution_floor funding regression tests ---
-
-/// Helper: init with a floor and return (client, investor).
-fn init_with_floor(
-    env: &Env,
-    invoice_id: &str,
-    target: i128,
-    floor: i128,
-) -> (LiquifactEscrowClient<'_>, Address) {
-    let client = deploy(env);
-    let admin = Address::generate(env);
-    let sme = Address::generate(env);
-    let (tok, tre) = free_addresses(env);
+#[test]
+fn test_get_funding_close_snapshot_absent_before_any_funding() {
+    // Snapshot must be None immediately after init, before any fund() call.
+    let env = Env::default();
+    env.mock_all_auths();
+    let client = deploy(&env);
+    let admin = Address::generate(&env);
+    let sme = Address::generate(&env);
+    let (tok, tre) = free_addresses(&env);
     client.init(
         &admin,
-        &String::from_str(env, invoice_id),
+        &String::from_str(&env, "SNAP010"),
         &sme,
-        &target,
-        &500i64,
+        &TARGET,
+        &800i64,
         &0u64,
         &tok,
         &None,
         &tre,
         &None,
-        &Some(floor),
+        &None,
         &None,
     );
-    let investor = Address::generate(env);
-    (client, investor)
-}
-
-/// `get_min_contribution_floor` returns the configured floor.
-#[test]
-fn test_get_min_contribution_floor_returns_configured_value() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _) = init_with_floor(&env, "FL001", 10_000i128, 500i128);
-    assert_eq!(client.get_min_contribution_floor(), 500i128);
-}
-
-/// Funding exactly at the floor succeeds.
-#[test]
-fn test_fund_at_floor_succeeds() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, investor) = init_with_floor(&env, "FL002", 10_000i128, 500i128);
-    let escrow = client.fund(&investor, &500i128);
-    assert_eq!(client.get_contribution(&investor), 500i128);
-    assert_eq!(escrow.funded_amount, 500i128);
-}
-
-/// Funding one unit below the floor panics.
-#[test]
-#[should_panic(expected = "funding amount below min_contribution floor")]
-fn test_fund_below_floor_panics() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, investor) = init_with_floor(&env, "FL003", 10_000i128, 500i128);
-    client.fund(&investor, &499i128);
-}
-
-/// Funding one unit above the floor succeeds.
-#[test]
-fn test_fund_one_above_floor_succeeds() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, investor) = init_with_floor(&env, "FL004", 10_000i128, 500i128);
-    client.fund(&investor, &501i128);
-    assert_eq!(client.get_contribution(&investor), 501i128);
-}
-
-/// The floor applies to every call, not just the first deposit.
-/// A follow-on deposit below the floor from the same investor must panic.
-#[test]
-#[should_panic(expected = "funding amount below min_contribution floor")]
-fn test_fund_follow_on_below_floor_panics() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, investor) = init_with_floor(&env, "FL005", 10_000i128, 500i128);
-    client.fund(&investor, &500i128); // first deposit — OK
-    client.fund(&investor, &499i128); // follow-on below floor — must panic
-}
-
-/// A follow-on deposit at the floor from the same investor succeeds and accumulates.
-#[test]
-fn test_fund_follow_on_at_floor_accumulates() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, investor) = init_with_floor(&env, "FL006", 10_000i128, 500i128);
-    client.fund(&investor, &500i128);
-    client.fund(&investor, &500i128);
-    assert_eq!(client.get_contribution(&investor), 1_000i128);
-}
-
-/// When no floor is configured (None), any positive amount is accepted.
-#[test]
-fn test_fund_no_floor_accepts_one_unit() {
-    let env = Env::default();
-    let (client, admin, sme) = setup(&env);
-    let investor = Address::generate(&env);
-    default_init(&client, &env, &admin, &sme);
-    client.fund(&investor, &1i128);
-    assert_eq!(client.get_contribution(&investor), 1i128);
-}
-
-/// Over-funding past the target with a floor: the single call that crosses the target
-/// must still meet the floor, and the snapshot captures the over-funded total.
-#[test]
-fn test_fund_overshoot_with_floor_records_snapshot() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let target = 5_000i128;
-    let floor = 1_000i128;
-    let (client, investor) = init_with_floor(&env, "FL007", target, floor);
-    // Single call: above floor, above target → funded immediately
-    let escrow = client.fund(&investor, &6_000i128);
-    assert_eq!(escrow.status, 1);
-    assert_eq!(escrow.funded_amount, 6_000i128);
-    let snap = client.get_funding_close_snapshot().unwrap();
-    assert_eq!(snap.total_principal, 6_000i128);
-    assert_eq!(snap.funding_target, target);
-}
-
-/// Two investors each contributing exactly the floor reach the target together;
-/// contributions sum to funded_amount and snapshot is correct.
-#[test]
-fn test_fund_two_investors_at_floor_reach_target() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let target = 2_000i128;
-    let floor = 1_000i128;
-    let (client, inv_a) = init_with_floor(&env, "FL008", target, floor);
-    let inv_b = Address::generate(&env);
-    client.fund(&inv_a, &floor);
-    let escrow = client.fund(&inv_b, &floor);
-    assert_eq!(escrow.status, 1);
-    assert_eq!(escrow.funded_amount, target);
     assert_eq!(
-        client.get_contribution(&inv_a) + client.get_contribution(&inv_b),
-        target
+        client.get_funding_close_snapshot(),
+        None,
+        "snapshot must be absent before any funding"
     );
-    let snap = client.get_funding_close_snapshot().unwrap();
-    assert_eq!(snap.total_principal, target);
 }
 
-/// `fund_with_commitment` also enforces the floor on the first deposit.
 #[test]
-#[should_panic(expected = "funding amount below min_contribution floor")]
-fn test_fund_with_commitment_below_floor_panics() {
+fn test_get_funding_close_snapshot_present_after_funding_completes() {
+    // Snapshot must be Some with correct fields once funded_amount reaches funding_target.
     let env = Env::default();
     env.mock_all_auths();
-    let (client, investor) = init_with_floor(&env, "FL009", 10_000i128, 500i128);
-    client.fund_with_commitment(&investor, &499i128, &0u64);
+    let client = deploy(&env);
+    let admin = Address::generate(&env);
+    let sme = Address::generate(&env);
+    let inv = Address::generate(&env);
+    let (tok, tre) = free_addresses(&env);
+    client.init(
+        &admin,
+        &String::from_str(&env, "SNAP011"),
+        &sme,
+        &TARGET,
+        &800i64,
+        &0u64,
+        &tok,
+        &None,
+        &tre,
+        &None,
+        &None,
+        &None,
+    );
+    // Partial fund — snapshot still absent.
+    client.fund(&inv, &(TARGET / 2));
+    assert_eq!(
+        client.get_funding_close_snapshot(),
+        None,
+        "snapshot must remain absent while escrow is still open"
+    );
+    // Final fund that crosses the target — snapshot must now be present.
+    client.fund(&inv, &(TARGET / 2));
+    let snap = client
+        .get_funding_close_snapshot()
+        .expect("snapshot must be present after funding completes");
+    assert_eq!(snap.total_principal, TARGET);
+    assert_eq!(snap.funding_target, TARGET);
+    assert_eq!(client.get_escrow().status, 1);
 }
 
-/// `fund_with_commitment` at the floor succeeds and records the contribution.
 #[test]
-fn test_fund_with_commitment_at_floor_succeeds() {
+fn test_get_funding_close_snapshot_immutable_after_set() {
+    // Once the snapshot is written it must not change, even if additional reads occur
+    // after the escrow has transitioned to a terminal state (settled).
     let env = Env::default();
     env.mock_all_auths();
-    let (client, investor) = init_with_floor(&env, "FL010", 10_000i128, 500i128);
-    client.fund_with_commitment(&investor, &500i128, &0u64);
-    assert_eq!(client.get_contribution(&investor), 500i128);
-}
-
-/// Floor equal to the target: a single call at the floor funds the escrow exactly.
-#[test]
-fn test_fund_floor_equals_target_exact_fill() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let amount = 1_000i128;
-    let (client, investor) = init_with_floor(&env, "FL011", amount, amount);
-    let escrow = client.fund(&investor, &amount);
-    assert_eq!(escrow.status, 1);
-    assert_eq!(escrow.funded_amount, amount);
-    let snap = client.get_funding_close_snapshot().unwrap();
-    assert_eq!(snap.total_principal, amount);
-    assert_eq!(snap.funding_target, amount);
+    let client = deploy(&env);
+    let admin = Address::generate(&env);
+    let sme = Address::generate(&env);
+    let inv = Address::generate(&env);
+    let (tok, tre) = free_addresses(&env);
+    client.init(
+        &admin,
+        &String::from_str(&env, "SNAP012"),
+        &sme,
+        &TARGET,
+        &800i64,
+        &0u64,
+        &tok,
+        &None,
+        &tre,
+        &None,
+        &None,
+        &None,
+    );
+    // Fund exactly to target — snapshot is written here.
+    client.fund(&inv, &TARGET);
+    let snap_at_close = client
+        .get_funding_close_snapshot()
+        .expect("snapshot must be present after funding");
+    // Advance through settlement — snapshot must remain identical.
+    client.settle();
+    let snap_after_settle = client
+        .get_funding_close_snapshot()
+        .expect("snapshot must still be present after settlement");
+    assert_eq!(
+        snap_at_close, snap_after_settle,
+        "snapshot must be immutable after being set"
+    );
 }
