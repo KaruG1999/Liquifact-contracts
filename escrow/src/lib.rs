@@ -552,7 +552,9 @@ impl LiquifactEscrow {
         escrow
     }
 
-    /// Bound funding token (immutable after [`LiquifactEscrow::init`]).
+    /// Returns the SEP-41 funding token bound at [`LiquifactEscrow::init`] ([`DataKey::FundingToken`]).
+    ///
+    /// **Immutable:** set once at init; cannot change after deploy. Panics if called before init.
     pub fn get_funding_token(env: Env) -> Address {
         env.storage()
             .instance()
@@ -560,7 +562,10 @@ impl LiquifactEscrow {
             .unwrap_or_else(|| panic!("Funding token not set"))
     }
 
-    /// Treasury that may receive terminal dust sweeps (immutable after init).
+    /// Returns the protocol treasury address bound at [`LiquifactEscrow::init`] ([`DataKey::Treasury`]).
+    ///
+    /// **Immutable:** set once at init; cannot change after deploy. The treasury is the only
+    /// recipient of [`LiquifactEscrow::sweep_terminal_dust`]. Panics if called before init.
     pub fn get_treasury(env: Env) -> Address {
         env.storage()
             .instance()
@@ -568,7 +573,12 @@ impl LiquifactEscrow {
             .unwrap_or_else(|| panic!("Treasury not set"))
     }
 
-    /// Optional registry contract id (**hint only** — not authority for this escrow).
+    /// Returns the optional off-chain registry hint stored at [`DataKey::RegistryRef`], or [`None`]
+    /// when no registry was supplied at [`LiquifactEscrow::init`].
+    ///
+    /// **Non-authority:** this address is a read-only discoverability hint for off-chain indexers.
+    /// No on-chain logic in this contract consults it. Callers must **not** treat its presence as
+    /// proof of registry membership — query the registry contract directly to verify on-chain state.
     pub fn get_registry_ref(env: Env) -> Option<Address> {
         env.storage().instance().get(&DataKey::RegistryRef)
     }
