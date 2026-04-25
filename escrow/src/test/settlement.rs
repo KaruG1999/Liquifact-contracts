@@ -421,13 +421,11 @@ fn test_cost_baseline_full_lifecycle() {
 fn test_sweep_terminal_dust_after_settle_transfers_to_treasury() {
     let env = Env::default();
     env.mock_all_auths();
-    let sac = env.register_stellar_asset_contract_v2(Address::generate(&env));
-    let token = sac.address();
+    let token = install_stellar_asset_token(&env);
     let admin = Address::generate(&env);
     let sme = Address::generate(&env);
     let treasury = Address::generate(&env);
-    let escrow_id = env.register(LiquifactEscrow, ());
-    let client = LiquifactEscrowClient::new(&env, &escrow_id);
+    let (escrow_id, client) = deploy_with_id(&env);
     client.init(
         &admin,
         &String::from_str(&env, "SW001"),
@@ -435,7 +433,7 @@ fn test_sweep_terminal_dust_after_settle_transfers_to_treasury() {
         &1_000i128,
         &100i64,
         &0u64,
-        &token,
+        &token.id,
         &None,
         &treasury,
         &None,
@@ -446,25 +444,22 @@ fn test_sweep_terminal_dust_after_settle_transfers_to_treasury() {
     client.fund(&investor, &1_000i128);
     client.settle();
 
-    let stellar = StellarAssetClient::new(&env, &token);
-    stellar.mint(&escrow_id, &5_000i128);
-    let before_t = stellar.balance(&treasury);
+    token.stellar.mint(&escrow_id, &5_000i128);
+    let before_t = token.token.balance(&treasury);
     let swept = client.sweep_terminal_dust(&5_000i128);
     assert_eq!(swept, 5_000i128);
-    assert_eq!(stellar.balance(&treasury), before_t + 5_000i128);
+    assert_eq!(token.token.balance(&treasury), before_t + 5_000i128);
 }
 
 #[test]
 fn test_sweep_terminal_dust_after_withdraw_and_ledger_tick() {
     let env = Env::default();
     env.mock_all_auths();
-    let sac = env.register_stellar_asset_contract_v2(Address::generate(&env));
-    let token = sac.address();
+    let token = install_stellar_asset_token(&env);
     let admin = Address::generate(&env);
     let sme = Address::generate(&env);
     let treasury = Address::generate(&env);
-    let escrow_id = env.register(LiquifactEscrow, ());
-    let client = LiquifactEscrowClient::new(&env, &escrow_id);
+    let (escrow_id, client) = deploy_with_id(&env);
     client.init(
         &admin,
         &String::from_str(&env, "SW002"),
@@ -472,7 +467,7 @@ fn test_sweep_terminal_dust_after_withdraw_and_ledger_tick() {
         &1_000i128,
         &100i64,
         &0u64,
-        &token,
+        &token.id,
         &None,
         &treasury,
         &None,
@@ -486,8 +481,7 @@ fn test_sweep_terminal_dust_after_withdraw_and_ledger_tick() {
     env.ledger()
         .set_sequence_number(env.ledger().sequence() + 10);
 
-    let stellar = StellarAssetClient::new(&env, &token);
-    stellar.mint(&escrow_id, &333i128);
+    token.stellar.mint(&escrow_id, &333i128);
     let swept = client.sweep_terminal_dust(&333i128);
     assert_eq!(swept, 333i128);
 }
@@ -497,13 +491,11 @@ fn test_sweep_terminal_dust_after_withdraw_and_ledger_tick() {
 fn test_sweep_rejected_when_open() {
     let env = Env::default();
     env.mock_all_auths();
-    let sac = env.register_stellar_asset_contract_v2(Address::generate(&env));
-    let token = sac.address();
+    let token = install_stellar_asset_token(&env);
     let admin = Address::generate(&env);
     let sme = Address::generate(&env);
     let treasury = Address::generate(&env);
-    let escrow_id = env.register(LiquifactEscrow, ());
-    let client = LiquifactEscrowClient::new(&env, &escrow_id);
+    let (escrow_id, client) = deploy_with_id(&env);
     client.init(
         &admin,
         &String::from_str(&env, "SW003"),
@@ -511,15 +503,14 @@ fn test_sweep_rejected_when_open() {
         &1_000i128,
         &100i64,
         &0u64,
-        &token,
+        &token.id,
         &None,
         &treasury,
         &None,
         &None,
         &None,
     );
-    let stellar = StellarAssetClient::new(&env, &token);
-    stellar.mint(&escrow_id, &100i128);
+    token.stellar.mint(&escrow_id, &100i128);
     client.sweep_terminal_dust(&100i128);
 }
 
@@ -528,13 +519,11 @@ fn test_sweep_rejected_when_open() {
 fn test_sweep_blocked_under_legal_hold() {
     let env = Env::default();
     env.mock_all_auths();
-    let sac = env.register_stellar_asset_contract_v2(Address::generate(&env));
-    let token = sac.address();
+    let token = install_stellar_asset_token(&env);
     let admin = Address::generate(&env);
     let sme = Address::generate(&env);
     let treasury = Address::generate(&env);
-    let escrow_id = env.register(LiquifactEscrow, ());
-    let client = LiquifactEscrowClient::new(&env, &escrow_id);
+    let (_escrow_id, client) = deploy_with_id(&env);
     client.init(
         &admin,
         &String::from_str(&env, "SW004"),
@@ -542,7 +531,7 @@ fn test_sweep_blocked_under_legal_hold() {
         &1_000i128,
         &100i64,
         &0u64,
-        &token,
+        &token.id,
         &None,
         &treasury,
         &None,
@@ -561,13 +550,11 @@ fn test_sweep_blocked_under_legal_hold() {
 fn test_sweep_rejects_amount_above_dust_cap() {
     let env = Env::default();
     env.mock_all_auths();
-    let sac = env.register_stellar_asset_contract_v2(Address::generate(&env));
-    let token = sac.address();
+    let token = install_stellar_asset_token(&env);
     let admin = Address::generate(&env);
     let sme = Address::generate(&env);
     let treasury = Address::generate(&env);
-    let escrow_id = env.register(LiquifactEscrow, ());
-    let client = LiquifactEscrowClient::new(&env, &escrow_id);
+    let (_escrow_id, client) = deploy_with_id(&env);
     client.init(
         &admin,
         &String::from_str(&env, "SW005"),
@@ -575,7 +562,7 @@ fn test_sweep_rejects_amount_above_dust_cap() {
         &1_000i128,
         &100i64,
         &0u64,
-        &token,
+        &token.id,
         &None,
         &treasury,
         &None,
@@ -592,13 +579,11 @@ fn test_sweep_rejects_amount_above_dust_cap() {
 fn test_sweep_caps_at_contract_balance() {
     let env = Env::default();
     env.mock_all_auths();
-    let sac = env.register_stellar_asset_contract_v2(Address::generate(&env));
-    let token = sac.address();
+    let token = install_stellar_asset_token(&env);
     let admin = Address::generate(&env);
     let sme = Address::generate(&env);
     let treasury = Address::generate(&env);
-    let escrow_id = env.register(LiquifactEscrow, ());
-    let client = LiquifactEscrowClient::new(&env, &escrow_id);
+    let (escrow_id, client) = deploy_with_id(&env);
     client.init(
         &admin,
         &String::from_str(&env, "SW006"),
@@ -606,7 +591,7 @@ fn test_sweep_caps_at_contract_balance() {
         &1_000i128,
         &100i64,
         &0u64,
-        &token,
+        &token.id,
         &None,
         &treasury,
         &None,
@@ -617,8 +602,7 @@ fn test_sweep_caps_at_contract_balance() {
     client.fund(&investor, &1_000i128);
     client.settle();
 
-    let stellar = StellarAssetClient::new(&env, &token);
-    stellar.mint(&escrow_id, &50i128);
+    token.stellar.mint(&escrow_id, &50i128);
     let swept = client.sweep_terminal_dust(&100i128);
     assert_eq!(swept, 50i128);
 }
@@ -627,13 +611,11 @@ fn test_sweep_caps_at_contract_balance() {
 fn test_sweep_requires_treasury_auth() {
     let env = Env::default();
     env.mock_all_auths();
-    let sac = env.register_stellar_asset_contract_v2(Address::generate(&env));
-    let token = sac.address();
+    let token = install_stellar_asset_token(&env);
     let admin = Address::generate(&env);
     let sme = Address::generate(&env);
     let treasury = Address::generate(&env);
-    let escrow_id = env.register(LiquifactEscrow, ());
-    let client = LiquifactEscrowClient::new(&env, &escrow_id);
+    let (escrow_id, client) = deploy_with_id(&env);
     client.init(
         &admin,
         &String::from_str(&env, "SW007"),
@@ -641,7 +623,7 @@ fn test_sweep_requires_treasury_auth() {
         &1_000i128,
         &100i64,
         &0u64,
-        &token,
+        &token.id,
         &None,
         &treasury,
         &None,
@@ -651,8 +633,7 @@ fn test_sweep_requires_treasury_auth() {
     let investor = Address::generate(&env);
     client.fund(&investor, &1_000i128);
     client.settle();
-    let stellar = StellarAssetClient::new(&env, &token);
-    stellar.mint(&escrow_id, &10i128);
+    token.stellar.mint(&escrow_id, &10i128);
 
     env.mock_auths(&[]);
     let err = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
