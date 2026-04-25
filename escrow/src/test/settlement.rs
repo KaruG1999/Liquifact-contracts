@@ -126,7 +126,7 @@ fn withdraw_emits_event() {
     let contract_events = env.events().all();
     let events = contract_events.events();
     assert!(
-        events.len() > 0,
+        !events.is_empty(),
         "withdraw must emit at least one contract event"
     );
 }
@@ -201,7 +201,7 @@ fn fund_after_withdraw_panics() {
     fund_to_target(&client, &env);
     client.withdraw(); // status → 3
     let late_investor = Address::generate(&env);
-    client.fund(&late_investor, &1_000_0000000i128); // must panic — fund requires status == 0
+    client.fund(&late_investor, &10_000_000_000_i128); // must panic — fund requires status == 0
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -675,7 +675,7 @@ fn claim_investor_payout_succeeds_after_settle() {
     let contract_events = env.events().all();
     let events = contract_events.events();
     assert!(
-        events.len() > 0,
+        !events.is_empty(),
         "claim must emit InvestorPayoutClaimed event"
     );
 }
@@ -1225,7 +1225,7 @@ fn no_state_mutation_possible_after_withdraw() {
         client.withdraw();
         let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let late = Address::generate(&env);
-            client.fund(&late, &1_000_0000000i128);
+            client.fund(&late, &10_000_000_000_i128);
         }));
         assert!(r.is_err(), "fund after withdraw must panic");
     }

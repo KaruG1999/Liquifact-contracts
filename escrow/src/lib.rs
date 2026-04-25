@@ -84,8 +84,13 @@
 //! written; off-chain pro-rata share for an investor is `get_contribution(addr) / snapshot.total_principal`
 //! in rational arithmetic (watch integer rounding off-chain).
 
+#![no_std]
 #![allow(clippy::too_many_arguments)]
 
+#[cfg(test)]
+extern crate std;
+
+use core::{clone::Clone, default::Default};
 use soroban_sdk::{
     contract, contractevent, contractimpl, contracttype, symbol_short, token::TokenClient, Address,
     BytesN, Env, String, Symbol, Vec,
