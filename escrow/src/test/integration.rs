@@ -190,7 +190,7 @@ fn test_escrow_gold_standard_happy_path_open_overfund_snapshot_settle_claim() {
     // Verify total contributions match expected yield calculation
     let total_principal = alice_amount + bob_amount + charlie_amount;
     let total_expected_yield = (total_principal * YIELD_BPS as i128) / 10_000;
-    let total_expected_payout = total_principal + total_expected_yield;
+    let _total_expected_payout = total_principal + total_expected_yield;
     
     // Note: The contract tracks claims but doesn't return payout amounts.
     // In a real integration, the payout calculation would be:
@@ -263,11 +263,11 @@ fn test_escrow_tiered_yield_with_commitment_locks() {
         &BASE_YIELD_BPS,
         &0u64, // No maturity for this test
         &funding_token,
-        &Some(yield_tiers),
+        &None, // registry
         &treasury,
-        &None,
-        &None,
-        &None,
+        &Some(yield_tiers),
+        &None, // min_contribution
+        &None, // max_unique_investors
     );
     
     let investor_base = Address::generate(&env);
@@ -341,8 +341,8 @@ fn test_escrow_tiered_yield_with_commitment_locks() {
     
     // Verify expected payout calculations (off-chain calculation for verification)
     let base_expected = calculate_expected_payout(base_amount, BASE_YIELD_BPS);
-    let tier1_expected = calculate_expected_payout(tier1_amount, 1000);
-    let tier2_expected = calculate_expected_payout(tier2_amount, 1200);
+    let _tier1_expected = calculate_expected_payout(tier1_amount, 1000);
+    let _tier2_expected = calculate_expected_payout(tier2_amount, 1200);
     let tier3_expected = calculate_expected_payout(tier3_amount, 1500);
     
     // Verify higher tiers would yield more absolute return

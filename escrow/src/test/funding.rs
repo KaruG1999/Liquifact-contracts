@@ -1289,7 +1289,7 @@ fn test_cap_edge_case_exactly_one_over_limit_panics() {
     );
     
     // Add exactly 5 investors
-    for i in 0..5 {
+    for _i in 0..5 {
         let investor = Address::generate(&env);
         client.fund(&investor, &(TARGET / 10));
     }

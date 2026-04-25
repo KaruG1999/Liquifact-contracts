@@ -37,9 +37,8 @@ impl<'a> FeeTokenClient<'a> {
 
     /// Mock balance function - in real implementation this would read from storage
     pub fn balance(&self, addr: &Address) -> i128 {
-        // For testing, we'll use a simple mock that stores balances in env storage
         let key = symbol_short!("BAL");
-        let balances = self.env.storage().persistent().get::<_, soroban_sdk::Map<Address, i128>>(key).unwrap_or_default();
+        let balances: soroban_sdk::Map<Address, i128> = self.env.storage().persistent().get(&key).unwrap_or_else(|| soroban_sdk::Map::new(&self.env));
         balances.get(addr.clone()).unwrap_or(0)
     }
 
@@ -60,7 +59,7 @@ impl<'a> FeeTokenClient<'a> {
 
         // Update balances (mock implementation)
         let key = symbol_short!("BAL");
-        let mut balances = self.env.storage().persistent().get::<_, soroban_sdk::Map<Address, i128>>(key).unwrap_or_default();
+        let mut balances: soroban_sdk::Map<Address, i128> = self.env.storage().persistent().get(&key).unwrap_or_else(|| soroban_sdk::Map::new(&self.env));
         
         // Subtract full amount from sender
         balances.set(from.clone(), from_balance - *amount);
@@ -69,16 +68,16 @@ impl<'a> FeeTokenClient<'a> {
         let to_balance = balances.get(to.address().clone()).unwrap_or(0);
         balances.set(to.address().clone(), to_balance + amount_after_fee);
         
-        self.env.storage().persistent().set(key, balances);
+        self.env.storage().persistent().set(&key, &balances);
     }
 
     /// Mock mint function for testing
     pub fn mint(&self, to: &Address, amount: &i128) {
         let key = symbol_short!("BAL");
-        let mut balances = self.env.storage().persistent().get::<_, soroban_sdk::Map<Address, i128>>(key).unwrap_or_default();
+        let mut balances: soroban_sdk::Map<Address, i128> = self.env.storage().persistent().get(&key).unwrap_or_else(|| soroban_sdk::Map::new(&self.env));
         let current_balance = balances.get(to.clone()).unwrap_or(0);
         balances.set(to.clone(), current_balance + *amount);
-        self.env.storage().persistent().set(key, balances);
+        self.env.storage().persistent().set(&key, &balances);
     }
 }
 
@@ -96,7 +95,7 @@ impl<'a> RebasingTokenClient<'a> {
 
     pub fn balance(&self, addr: &Address) -> i128 {
         let key = symbol_short!("REBAL");
-        let balances = self.env.storage().persistent().get::<_, soroban_sdk::Map<Address, i128>>(key).unwrap_or_default();
+        let balances: soroban_sdk::Map<Address, i128> = self.env.storage().persistent().get(&key).unwrap_or_else(|| soroban_sdk::Map::new(&self.env));
         balances.get(addr.clone()).unwrap_or(0)
     }
 
@@ -117,7 +116,7 @@ impl<'a> RebasingTokenClient<'a> {
 
         // Update balances
         let key = symbol_short!("REBAL");
-        let mut balances = self.env.storage().persistent().get::<_, soroban_sdk::Map<Address, i128>>(key).unwrap_or_default();
+        let mut balances: soroban_sdk::Map<Address, i128> = self.env.storage().persistent().get(&key).unwrap_or_else(|| soroban_sdk::Map::new(&self.env));
         
         // Subtract exact amount from sender
         balances.set(from.clone(), from_balance - *amount);
@@ -126,15 +125,15 @@ impl<'a> RebasingTokenClient<'a> {
         let to_balance = balances.get(to.address().clone()).unwrap_or(0);
         balances.set(to.address().clone(), to_balance + amount_with_bonus);
         
-        self.env.storage().persistent().set(key, balances);
+        self.env.storage().persistent().set(&key, &balances);
     }
 
     pub fn mint(&self, to: &Address, amount: &i128) {
         let key = symbol_short!("REBAL");
-        let mut balances = self.env.storage().persistent().get::<_, soroban_sdk::Map<Address, i128>>(key).unwrap_or_default();
+        let mut balances: soroban_sdk::Map<Address, i128> = self.env.storage().persistent().get(&key).unwrap_or_else(|| soroban_sdk::Map::new(&self.env));
         let current_balance = balances.get(to.clone()).unwrap_or(0);
         balances.set(to.clone(), current_balance + *amount);
-        self.env.storage().persistent().set(key, balances);
+        self.env.storage().persistent().set(&key, &balances);
     }
 }
 
