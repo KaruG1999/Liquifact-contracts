@@ -442,16 +442,98 @@ fn prop_funded_amount_respects_funding_target() {
         &None,
     );
 
-    let fund_amount = target + excess;
+let fund_amount = target + excess;
     let after = client.fund(&investor, &fund_amount);
-assert_eq!(
-            after.funded_amount, total_contributed,
-            "funded_amount equals running sum"
-        );
-        assert!(
-            after.funded_amount >= before,
-            "funded_amount never decreases"
-        );
+    assert_eq!(
+        after.funded_amount, fund_amount,
+        "funded_amount records exact amount"
+    );
+    assert!(after.funded_amount > target, "overfunding recorded");
+}
+
+#[test]
+fn prop_funded_amount_non_decreasing_across_multiple_funders() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let sme = Address::generate(&env);
+    let inv1 = Address::generate(&env);
+    let inv2 = Address::generate(&env);
+    let inv3 = Address::generate(&env);
+    let client = deploy(&env);
+
+    let target: i128 = 300_000_000_000i128;
+    client.init(
+        &admin,
+        &String::from_str(&env, "MONO3"),
+        &sme,
+        &target,
+        &800i64,
+        &0u64,
+        &Address::generate(&env),
+        &None,
+        &Address::generate(&env),
+        &None,
+        &None,
+        &None,
+    );
+
+    let amt1: i128 = 50_000_000_000i128;
+    let amt2: i128 = 100_000_000_000i128;
+    let amt3: i128 = 50_000_000_000i128;
+
+    let before1 = client.get_escrow().funded_amount;
+    let after1 = client.fund(&inv1, &amt1);
+    assert!(after1.funded_amount >= before1, "first fund non-decreasing");
+
+    let before2 = after1.funded_amount;
+    let after2 = client.fund(&inv2, &amt2);
+    assert!(
+        after2.funded_amount >= before2,
+        "second fund non-decreasing"
+    );
+
+    let before3 = after2.funded_amount;
+    let after3 = client.fund(&inv3, &amt3);
+    assert!(after3.funded_amount >= before3, "third fund non-decreasing");
+
+    assert_eq!(
+        after3.funded_amount,
+        before1 + amt1 + amt2 + amt3,
+        "total equals sum"
+    );
+}
+
+#[test]
+fn prop_funded_amount_equals_contribution_sum_for_funded_escrow() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let sme = Address::generate(&env);
+    let client = deploy(&env);
+
+    let target: i128 = 300_000_000_000i128;
+    client.init(
+        &admin,
+        &String::from_str(&env, "MONO4"),
+        &sme,
+        &target,
+        &800i64,
+        &0u64,
+        &Address::generate(&env),
+        &None,
+        &Address::generate(&env),
+        &None,
+        &None,
+        &None,
+    );
+
+    let amounts: [i128; 3] = [50_000_000_000i128, 100_000_000_000i128, 50_000_000_000i128];
+    let mut total_contributed: i128 = 0;
+
+    for amount in amounts {
+        let before = client.get_escrow().funded_amount;
+        let after = client.fund(&Address::generate(&env), &amount);
 
         total_contributed += amount;
 
@@ -459,7 +541,10 @@ assert_eq!(
             after.funded_amount, total_contributed,
             "funded_amount equals running sum"
         );
-        assert!(after.funded_amount >= before, "funded_amount never decreases");
+        assert!(
+            after.funded_amount >= before,
+            "funded_amount never decreases"
+        );
     }
 
     let final_funded = client.get_escrow().funded_amount;
