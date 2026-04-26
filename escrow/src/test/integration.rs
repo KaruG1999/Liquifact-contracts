@@ -1,6 +1,7 @@
 use super::super::external_calls::transfer_funding_token_with_balance_checks;
 use super::*;
 use soroban_sdk::{contract, contractimpl};
+use std::str::FromStr;
 
 // External-call and token-integration assumptions that should stay separate
 // from escrow state-machine assertions.

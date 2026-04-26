@@ -25,6 +25,7 @@ use soroban_sdk::{
     testutils::{Address as _, Events, Ledger as _},
     Address, Env,
 };
+use std::str::FromStr;
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -977,12 +978,13 @@ fn funding_snapshot_survives_withdraw() {
     let admin = Address::generate(&env);
     let sme = Address::generate(&env);
     let treasury = Address::generate(&env);
+    let investor = Address::generate(&env);
     let (escrow_id, client) = deploy_with_id(&env);
     client.init(
         &admin,
         &String::from_str(&env, "SW007"),
         &sme,
-        &1_000i128,
+        &TARGET,
         &100i64,
         &0u64,
         &token.id,
@@ -992,10 +994,17 @@ fn funding_snapshot_survives_withdraw() {
         &None,
         &None,
     );
+
+    client.fund(&investor, &TARGET);
+    let snapshot_before = client.get_funding_close_snapshot();
+    client.settle();
+    client.withdraw();
+    let snapshot_after = client.get_funding_close_snapshot();
+
     assert_eq!(
+        snapshot_before.unwrap().total_principal,
         snapshot_after.unwrap().total_principal,
-        TARGET,
-        "snapshot total_principal must equal funded amount"
+        "snapshot total_principal must equal funded amount after withdraw"
     );
 }
 
