@@ -1,4 +1,5 @@
 use super::*;
+use crate::FundingTargetUpdated;
 
 // Admin/governance operations: target changes, maturity changes, admin transfer,
 // legal hold, migration guards, and collateral metadata.
