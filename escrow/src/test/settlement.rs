@@ -1011,7 +1011,10 @@ fn funding_snapshot_survives_settle() {
     client.settle();
 
     let snapshot_after = client.get_funding_close_snapshot();
-    assert_eq!(snapshot_before.unwrap().total_principal, snapshot_after.unwrap().total_principal);
+    assert_eq!(
+        snapshot_before.unwrap().total_principal,
+        snapshot_after.unwrap().total_principal
+    );
 }
 
 // ── is_investor_claimed: idempotent read behavior & cross-investor isolation ──
