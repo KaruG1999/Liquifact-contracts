@@ -26,7 +26,7 @@ impl MockToken {
 // --- Gold Standard Integration Test ---
 
 /// **GOLD STANDARD INTEGRATION TEST**
-/// 
+///
 /// This test demonstrates the complete happy path escrow lifecycle that new contributors
 /// should use as a reference implementation. It covers:
 /// 
@@ -35,13 +35,13 @@ impl MockToken {
 /// 3. **Snapshot**: Verify funding close snapshot captures state
 /// 4. **Settle**: SME settles the escrow after maturity
 /// 5. **Claim**: Investors claim their principal + yield payouts
-/// 
+///
 /// **Token Amounts & Decimals:**
 /// - USDC (7 decimals): 1 USDC = 10,000,000 base units
 /// - Target: 50,000 USDC (500,000,000,000 base units)
 /// - Yield: 12% APY (1200 bps)
 /// - Maturity: 365 days (31,536,000 seconds)
-/// 
+///
 /// **Security Notes:**
 /// - Uses mock auth for testing; production requires real signatures
 /// - Token transfers are metadata-only per external_calls.rs assumptions
@@ -51,22 +51,22 @@ impl MockToken {
 fn test_escrow_gold_standard_happy_path_open_overfund_snapshot_settle_claim() {
     let env = Env::default();
     env.mock_all_auths();
-    
+
     // === SETUP PHASE ===
     let (client, admin, sme) = setup(&env);
     let (funding_token, treasury) = free_addresses(&env);
-    
+
     // Create realistic investor addresses
     let investor_alice = Address::generate(&env);
     let investor_bob = Address::generate(&env);
     let investor_charlie = Address::generate(&env);
-    
+
     // USDC-like token with 7 decimals: 1 USDC = 10,000,000 base units
     const USDC_DECIMALS: i128 = 10_000_000;
     const TARGET_USDC: i128 = 50_000 * USDC_DECIMALS; // 50,000 USDC
     const YIELD_BPS: i64 = 1200; // 12% APY
     const MATURITY_SECS: u64 = 365 * 24 * 60 * 60; // 1 year
-    
+
     // === PHASE 1: OPEN - Initialize Escrow ===
     client.init(
         &admin,
@@ -82,56 +82,89 @@ fn test_escrow_gold_standard_happy_path_open_overfund_snapshot_settle_claim() {
         &None, // No min contribution floor
         &None, // No max investors cap
     );
-    
+
     let initial_escrow = client.get_escrow();
-    assert_eq!(initial_escrow.status, 0, "Escrow should start in Open status");
-    assert_eq!(initial_escrow.funded_amount, 0, "Should start with zero funding");
+    assert_eq!(
+        initial_escrow.status, 0,
+        "Escrow should start in Open status"
+    );
+    assert_eq!(
+        initial_escrow.funded_amount, 0,
+        "Should start with zero funding"
+    );
     assert_eq!(initial_escrow.funding_target, TARGET_USDC);
     assert_eq!(initial_escrow.yield_bps, YIELD_BPS);
-    
+
     // === PHASE 2: OVERFUND - Multiple Investors Contribute ===
-    
+
     // Alice contributes 20,000 USDC (40% of target)
     let alice_amount = 20_000 * USDC_DECIMALS;
     let escrow_after_alice = client.fund(&investor_alice, &alice_amount);
-    assert_eq!(escrow_after_alice.status, 0, "Should remain Open after partial funding");
+    assert_eq!(
+        escrow_after_alice.status, 0,
+        "Should remain Open after partial funding"
+    );
     assert_eq!(escrow_after_alice.funded_amount, alice_amount);
-    
+
     // Verify Alice's contribution is tracked
     let alice_contribution = client.get_contribution(&investor_alice);
     assert_eq!(alice_contribution, alice_amount);
-    
+
     // Bob contributes 25,000 USDC (50% of target) - this triggers funding completion
     let bob_amount = 25_000 * USDC_DECIMALS;
     let escrow_after_bob = client.fund(&investor_bob, &bob_amount);
-    assert_eq!(escrow_after_bob.status, 1, "Should transition to Funded status");
+    assert_eq!(
+        escrow_after_bob.status, 1,
+        "Should transition to Funded status"
+    );
     assert_eq!(escrow_after_bob.funded_amount, alice_amount + bob_amount);
-    
+
     // Charlie contributes 10,000 USDC (overfunding scenario)
     let charlie_amount = 10_000 * USDC_DECIMALS;
     let escrow_after_charlie = client.fund(&investor_charlie, &charlie_amount);
-    assert_eq!(escrow_after_charlie.status, 1, "Should remain Funded after overfunding");
-    
+    assert_eq!(
+        escrow_after_charlie.status, 1,
+        "Should remain Funded after overfunding"
+    );
+
     let total_funded = alice_amount + bob_amount + charlie_amount;
     assert_eq!(escrow_after_charlie.funded_amount, total_funded);
     assert!(total_funded > TARGET_USDC, "Should be overfunded");
-    
+
     // === PHASE 3: SNAPSHOT - Verify Funding Close Snapshot ===
     let snapshot = client.get_funding_close_snapshot();
-    assert!(snapshot.is_some(), "Funding close snapshot should be captured");
-    
+    assert!(
+        snapshot.is_some(),
+        "Funding close snapshot should be captured"
+    );
+
     let snapshot = snapshot.unwrap();
-    assert_eq!(snapshot.total_principal, total_funded, "Snapshot should capture total funded amount");
-    assert_eq!(snapshot.funding_target, TARGET_USDC, "Snapshot should preserve original target");
-    assert!(snapshot.closed_at_ledger_timestamp > 0, "Should have valid timestamp");
-    assert!(snapshot.closed_at_ledger_sequence > 0, "Should have valid sequence");
-    
+    assert_eq!(
+        snapshot.total_principal, total_funded,
+        "Snapshot should capture total funded amount"
+    );
+    assert_eq!(
+        snapshot.funding_target, TARGET_USDC,
+        "Snapshot should preserve original target"
+    );
+    assert!(
+        snapshot.closed_at_ledger_timestamp > 0,
+        "Should have valid timestamp"
+    );
+    assert!(
+        snapshot.closed_at_ledger_sequence > 0,
+        "Should have valid sequence"
+    );
+
     // Verify individual contributions sum to snapshot total
     let alice_contrib = client.get_contribution(&investor_alice);
     let bob_contrib = client.get_contribution(&investor_bob);
     let charlie_contrib = client.get_contribution(&investor_charlie);
-    assert_eq!(alice_contrib + bob_contrib + charlie_contrib, snapshot.total_principal);
-    
+    assert_eq!(
+        alice_contrib + bob_contrib + charlie_contrib,
+        snapshot.total_principal
+    );
+
     // === PHASE 4: SETTLE - SME Settles After Maturity ===
     
     // Fast-forward time to maturity
@@ -141,8 +174,11 @@ fn test_escrow_gold_standard_happy_path_open_overfund_snapshot_settle_claim() {
     
     let settled_escrow = client.settle();
     assert_eq!(settled_escrow.status, 2, "Should transition to Settled status");
-    assert_eq!(settled_escrow.funded_amount, total_funded, "Funded amount should be preserved");
-    
+    assert_eq!(
+        settled_escrow.funded_amount, total_funded,
+        "Funded amount should be preserved"
+    );
+
     // === PHASE 5: CLAIM - Investors Claim Principal + Yield ===
     
     // Calculate expected payouts using the contract's deterministic formula

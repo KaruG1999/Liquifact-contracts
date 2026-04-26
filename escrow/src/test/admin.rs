@@ -552,7 +552,7 @@ fn test_update_funding_target_fails_when_settled() {
         &None,
     );
     client.fund(&investor, &5_000i128); // status → 1 (funded)
-    client.settle();                    // status → 2 (settled)
+    client.settle(); // status → 2 (settled)
     client.update_funding_target(&6_000i128);
 }
 
@@ -585,7 +585,7 @@ fn test_update_funding_target_fails_when_withdrawn() {
         &None,
     );
     client.fund(&investor, &5_000i128); // status → 1 (funded)
-    client.withdraw();                  // status → 3 (withdrawn)
+    client.withdraw(); // status → 3 (withdrawn)
     client.update_funding_target(&6_000i128);
 }
 
