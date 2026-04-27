@@ -1,3 +1,4 @@
+#![cfg_attr(not(test), no_std)]
 //! LiquiFact Escrow Contract
 //!
 //! Holds investor funds for an invoice until settlement.
@@ -81,8 +82,8 @@
 //!
 //! When status first becomes **funded**, [`DataKey::FundingCloseSnapshot`] stores total principal
 //! (including over-funding past target), the target, and ledger timestamp/sequence. **Immutable** once
-//! written; off-chain pro-rata share for an investor is `get_contribution(addr) / snapshot.total_principal`
-//! in rational arithmetic (watch integer rounding off-chain).
+//! written; see `docs/escrow-pro-rata.md` for the authoritative pro-rata payout math and rounding rules.
+//! Off-chain share for an investor is `get_contribution(addr) / snapshot.total_principal`.
 
 #![no_std]
 #![allow(clippy::too_many_arguments)]
@@ -96,7 +97,7 @@ use soroban_sdk::{
     BytesN, Env, String, Symbol, Vec,
 };
 
-pub(crate) mod external_calls;
+pub mod external_calls;
 
 /// Current storage schema version written to [`DataKey::Version`] by [`LiquifactEscrow::init`].
 ///
@@ -288,7 +289,9 @@ pub struct EscrowInitialized {
 pub struct EscrowFunded {
     #[topic]
     pub name: Symbol,
+    #[topic]
     pub invoice_id: Symbol,
+    #[topic]
     pub investor: Address,
     pub amount: i128,
     pub funded_amount: i128,
@@ -301,6 +304,7 @@ pub struct EscrowFunded {
 pub struct EscrowSettled {
     #[topic]
     pub name: Symbol,
+    #[topic]
     pub invoice_id: Symbol,
     pub funded_amount: i128,
     pub yield_bps: i64,
@@ -311,6 +315,7 @@ pub struct EscrowSettled {
 pub struct MaturityUpdatedEvent {
     #[topic]
     pub name: Symbol,
+    #[topic]
     pub invoice_id: Symbol,
     pub old_maturity: u64,
     pub new_maturity: u64,
@@ -320,6 +325,7 @@ pub struct MaturityUpdatedEvent {
 pub struct AdminTransferredEvent {
     #[topic]
     pub name: Symbol,
+    #[topic]
     pub invoice_id: Symbol,
     pub new_admin: Address,
 }
@@ -328,6 +334,7 @@ pub struct AdminTransferredEvent {
 pub struct FundingTargetUpdated {
     #[topic]
     pub name: Symbol,
+    #[topic]
     pub invoice_id: Symbol,
     pub old_target: i128,
     pub new_target: i128,
@@ -337,6 +344,7 @@ pub struct FundingTargetUpdated {
 pub struct LegalHoldChanged {
     #[topic]
     pub name: Symbol,
+    #[topic]
     pub invoice_id: Symbol,
     /// `1` = hold enabled, `0` = cleared.
     pub active: u32,
@@ -362,6 +370,7 @@ pub struct CollateralRecordedEvt {
 pub struct SmeWithdrew {
     #[topic]
     pub name: Symbol,
+    #[topic]
     pub invoice_id: Symbol,
     pub amount: i128,
 }
@@ -372,6 +381,7 @@ pub struct InvestorPayoutClaimed {
     pub name: Symbol,
     #[topic]
     pub investor: Address,
+    #[topic]
     pub invoice_id: Symbol,
 }
 
@@ -1050,7 +1060,7 @@ impl LiquifactEscrow {
     /// |-----------|--------|
     /// | `stored_version != from_version` | `"from_version does not match stored version"` |
     /// | `from_version >= SCHEMA_VERSION` | `"Already at current schema version"` |
-    /// | Any `from_version < SCHEMA_VERSION` (all paths) | `"No migration path from version {N} — extend migrate or redeploy"` |
+    /// | Any `from_version < SCHEMA_VERSION` (all paths) | `"No migration path from version {N} - extend migrate or redeploy"` |
     ///
     /// See `docs/OPERATOR_RUNBOOK.md` §2 for step-by-step instructions on implementing
     /// a concrete migration path.
@@ -1070,10 +1080,7 @@ impl LiquifactEscrow {
         // To add one: implement the transformation here, call
         //   env.storage().instance().set(&DataKey::Version, &NEW_VERSION);
         // and return NEW_VERSION before reaching this panic.
-        panic!(
-            "No migration path from version {} — extend migrate or redeploy",
-            from_version
-        );
+        panic!("No migration path from version {from_version} - extend migrate or redeploy");
     }
 
     /// Record investor principal while the invoice is **open**. First deposit sets base
