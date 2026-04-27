@@ -1042,6 +1042,22 @@ fn test_init_tier_yield_out_of_range() {
     let (client, admin, sme) = setup(&env);
     let (token, treasury) = free_addresses(&env);
     let mut tiers = SorobanVec::new(&env);
-    tiers.push_back(YieldTier { min_lock_secs: 100, yield_bps: 10001 });
-    client.init(&admin, &soroban_sdk::String::from_str(&env, "T"), &sme, &100, &100, &10, &token, &None, &treasury, &Some(tiers), &None, &None);
+    tiers.push_back(YieldTier {
+        min_lock_secs: 100,
+        yield_bps: 10001,
+    });
+    client.init(
+        &admin,
+        &soroban_sdk::String::from_str(&env, "T"),
+        &sme,
+        &100,
+        &100,
+        &10,
+        &token,
+        &None,
+        &treasury,
+        &Some(tiers),
+        &None,
+        &None,
+    );
 }

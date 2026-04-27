@@ -18,7 +18,8 @@
 
 #[cfg(test)]
 use super::{
-    default_init, deploy, deploy_with_id, free_addresses, install_stellar_asset_token, setup, TARGET,
+    default_init, deploy, deploy_with_id, free_addresses, install_stellar_asset_token, setup,
+    TARGET,
 };
 use crate::MAX_DUST_SWEEP_AMOUNT;
 use soroban_sdk::{
@@ -721,10 +722,10 @@ fn funding_snapshot_survives_withdraw() {
     );
     fund_to_target(&client, &env);
     let snapshot_before = client.get_funding_close_snapshot();
-    
+
     client.withdraw();
     let snapshot_after = client.get_funding_close_snapshot();
-    
+
     assert_eq!(
         snapshot_after.as_ref().unwrap().total_principal,
         TARGET,

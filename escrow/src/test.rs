@@ -13,11 +13,11 @@ use soroban_sdk::{
 // Focused test tree for escrow behavior. Shared helpers live here so feature
 // modules stay assertion-focused and each test still owns a fresh Env.
 mod admin;
+mod coverage;
 mod external_calls;
 mod funding;
 mod init;
 mod integration;
-mod coverage;
 mod legal_hold;
 mod properties;
 mod settlement;
