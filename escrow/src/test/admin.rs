@@ -1,4 +1,6 @@
 use super::*;
+use crate::FundingTargetUpdated;
+use soroban_sdk::Event;
 
 // Admin/governance operations: target changes, maturity changes, admin transfer,
 // legal hold, migration guards, and collateral metadata.
@@ -9,7 +11,7 @@ fn test_update_maturity_success() {
     let (client, admin, sme) = setup(&env);
     client.init(
         &admin,
-        &String::from_str(&env, "INV006b"),
+        &soroban_sdk::String::from_str(&env, "INV006b"),
         &sme,
         &1_000i128,
         &500i64,
@@ -34,7 +36,7 @@ fn test_update_maturity_wrong_state() {
     let investor = Address::generate(&env);
     client.init(
         &admin,
-        &String::from_str(&env, "INV007"),
+        &soroban_sdk::String::from_str(&env, "INV007"),
         &sme,
         &1_000i128,
         &500i64,
@@ -60,7 +62,7 @@ fn test_update_maturity_unauthorized() {
     let client = deploy(&env);
     client.init(
         &admin,
-        &String::from_str(&env, "INV009"),
+        &soroban_sdk::String::from_str(&env, "INV009"),
         &sme,
         &1_000i128,
         &500i64,
@@ -83,7 +85,7 @@ fn test_transfer_admin_updates_admin() {
     let new_admin = Address::generate(&env);
     client.init(
         &admin,
-        &String::from_str(&env, "T001"),
+        &soroban_sdk::String::from_str(&env, "T001"),
         &sme,
         &TARGET,
         &800i64,
@@ -107,7 +109,7 @@ fn test_transfer_admin_same_address_panics() {
     let (client, admin, sme) = setup(&env);
     client.init(
         &admin,
-        &String::from_str(&env, "T002"),
+        &soroban_sdk::String::from_str(&env, "T002"),
         &sme,
         &TARGET,
         &800i64,
@@ -178,7 +180,7 @@ fn test_record_collateral_stored_and_does_not_block_settle() {
     let investor = Address::generate(&env);
     client.init(
         &admin,
-        &String::from_str(&env, "COL001"),
+        &soroban_sdk::String::from_str(&env, "COL001"),
         &sme,
         &TARGET,
         &800i64,
@@ -207,7 +209,7 @@ fn test_collateral_zero_panics() {
     let (client, admin, sme) = setup(&env);
     client.init(
         &admin,
-        &String::from_str(&env, "COL002"),
+        &soroban_sdk::String::from_str(&env, "COL002"),
         &sme,
         &TARGET,
         &800i64,
@@ -229,7 +231,7 @@ fn test_collateral_requires_sme_auth() {
     let (client, admin, sme) = setup(&env);
     client.init(
         &admin,
-        &String::from_str(&env, "COL003"),
+        &soroban_sdk::String::from_str(&env, "COL003"),
         &sme,
         &TARGET,
         &800i64,
@@ -252,7 +254,7 @@ fn test_legal_hold_blocks_settle_withdraw_claim_and_fund() {
     let investor = Address::generate(&env);
     client.init(
         &admin,
-        &String::from_str(&env, "LH001"),
+        &soroban_sdk::String::from_str(&env, "LH001"),
         &sme,
         &TARGET,
         &800i64,
@@ -302,7 +304,7 @@ fn test_legal_hold_blocks_new_funds_when_open() {
     let investor = Address::generate(&env);
     client.init(
         &admin,
-        &String::from_str(&env, "LH002"),
+        &soroban_sdk::String::from_str(&env, "LH002"),
         &sme,
         &TARGET,
         &800i64,
@@ -341,7 +343,7 @@ fn test_update_funding_target_by_admin_succeeds() {
     let treasury = Address::generate(&env);
     client.init(
         &admin,
-        &String::from_str(&env, "INV001"),
+        &soroban_sdk::String::from_str(&env, "INV001"),
         &sme,
         &5_000i128,
         &800i64,
@@ -371,7 +373,7 @@ fn test_update_funding_target_by_non_admin_panics() {
     let treasury = Address::generate(&env);
     client.init(
         &admin,
-        &String::from_str(&env, "INV001"),
+        &soroban_sdk::String::from_str(&env, "INV001"),
         &sme,
         &5_000i128,
         &800i64,
@@ -402,7 +404,7 @@ fn test_update_funding_target_fails_when_funded() {
     let treasury = Address::generate(&env);
     client.init(
         &admin,
-        &String::from_str(&env, "INV001"),
+        &soroban_sdk::String::from_str(&env, "INV001"),
         &sme,
         &5_000i128,
         &800i64,
@@ -432,7 +434,7 @@ fn test_update_funding_target_below_funded_panics() {
     let treasury = Address::generate(&env);
     client.init(
         &admin,
-        &String::from_str(&env, "INV001"),
+        &soroban_sdk::String::from_str(&env, "INV001"),
         &sme,
         &10_000i128,
         &800i64,
@@ -461,7 +463,7 @@ fn test_update_funding_target_zero_panics() {
     let treasury = Address::generate(&env);
     client.init(
         &admin,
-        &String::from_str(&env, "INV001"),
+        &soroban_sdk::String::from_str(&env, "INV001"),
         &sme,
         &5_000i128,
         &800i64,
@@ -496,7 +498,7 @@ fn test_update_funding_target_event_fields() {
     let treasury = Address::generate(&env);
     client.init(
         &admin,
-        &String::from_str(&env, "EVT001"),
+        &soroban_sdk::String::from_str(&env, "EVT001"),
         &sme,
         &5_000i128,
         &800i64,
@@ -539,7 +541,7 @@ fn test_update_funding_target_fails_when_settled() {
     let treasury = Address::generate(&env);
     client.init(
         &admin,
-        &String::from_str(&env, "SETL001"),
+        &soroban_sdk::String::from_str(&env, "SETL001"),
         &sme,
         &5_000i128,
         &800i64,
@@ -572,7 +574,7 @@ fn test_update_funding_target_fails_when_withdrawn() {
     let treasury = Address::generate(&env);
     client.init(
         &admin,
-        &String::from_str(&env, "WD001"),
+        &soroban_sdk::String::from_str(&env, "WD001"),
         &sme,
         &5_000i128,
         &800i64,
@@ -605,7 +607,7 @@ fn test_update_funding_target_equal_to_funded_amount_succeeds() {
     let treasury = Address::generate(&env);
     client.init(
         &admin,
-        &String::from_str(&env, "BOUND001"),
+        &soroban_sdk::String::from_str(&env, "BOUND001"),
         &sme,
         &10_000i128,
         &800i64,
@@ -640,7 +642,7 @@ fn test_update_funding_target_negative_panics() {
     let treasury = Address::generate(&env);
     client.init(
         &admin,
-        &String::from_str(&env, "NEG001"),
+        &soroban_sdk::String::from_str(&env, "NEG001"),
         &sme,
         &5_000i128,
         &800i64,

@@ -1,5 +1,5 @@
 use super::{LiquifactEscrow, LiquifactEscrowClient};
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use soroban_sdk::{testutils::Address as _, Address, Env};
 
 fn deploy(env: &Env) -> LiquifactEscrowClient<'_> {
     let id = env.register(LiquifactEscrow, ());
@@ -13,7 +13,7 @@ fn init(env: &Env, client: &LiquifactEscrowClient) -> (Address, Address) {
     let treasury = Address::generate(env);
     client.init(
         &admin,
-        &String::from_str(env, "ALINV001"),
+        &soroban_sdk::String::from_str(env, "ALINV001"),
         &sme,
         &10_000i128,
         &800i64,

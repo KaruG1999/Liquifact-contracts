@@ -21,7 +21,7 @@ proptest! {
         let target = 200_000_000_000i128;
         client.init(
             &admin,
-            &String::from_str(&env, "INVTST"),
+            &soroban_sdk::String::from_str(&env, "INVTST"),
             &sme,
             &target,
             &800i64,
@@ -60,7 +60,7 @@ proptest! {
 
         let escrow = client.init(
             &admin,
-            &String::from_str(&env, "INVSTA"),
+            &soroban_sdk::String::from_str(&env, "INVSTA"),
             &sme,
             &target,
             &800i64,
@@ -165,7 +165,7 @@ fn fuzz_multi_investor_fund_ordering_snapshot_once_only() {
         let (token, treasury) = free_addresses(&env);
         client.init(
             &admin,
-            &String::from_str(&env, "FUZZSNAP"),
+            &soroban_sdk::String::from_str(&env, "FUZZSNAP"),
             &sme,
             &TARGET,
             &800i64,
