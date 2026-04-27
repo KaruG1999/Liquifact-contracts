@@ -277,6 +277,15 @@ cargo test
 cargo llvm-cov --features testutils --fail-under-lines 95 --summary-only -p liquifact_escrow
 ```
 
+### Cargo.lock process notes
+
+- Keep `Cargo.lock` committed and reviewed for every dependency change.
+- For routine updates, use a dedicated dependency branch and include lockfile diff context in PR.
+- For emergency advisory bumps, prioritize minimal version movement and full regression checks.
+- After any lockfile update, re-run the full CI command set above before merge.
+- Dependency policy, cadence, and emergency workflow are documented in
+  [`docs/escrow-dependency-policy.md`](docs/escrow-dependency-policy.md).
+
 ---
 
 ## Contributing
