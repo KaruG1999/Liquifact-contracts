@@ -17,7 +17,10 @@
 //! defined in `escrow/src/test.rs`. No cross-test state is shared.
 
 #[cfg(test)]
-use super::{default_init, deploy, free_addresses, setup, TARGET};
+use super::{
+    default_init, deploy, deploy_with_id, free_addresses, install_stellar_asset_token, setup, TARGET,
+};
+use crate::MAX_DUST_SWEEP_AMOUNT;
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger as _},
     Address, Env,
@@ -461,6 +464,7 @@ fn test_cost_baseline_settle() {
     let env = Env::default();
     let (client, admin, sme) = setup(&env);
     default_init(&client, &env, &admin, &sme);
+    fund_to_target(&client, &env);
     client.settle();
 }
 
@@ -523,13 +527,14 @@ fn settle_at_maturity_succeeds() {
     let sme = Address::generate(&env);
     let treasury = Address::generate(&env);
     let (escrow_id, client) = deploy_with_id(&env);
+    let maturity = 10_000u64;
     client.init(
         &admin,
         &soroban_sdk::String::from_str(&env, "INV_MAT_002"),
         &sme,
         &1_000i128,
         &100i64,
-        &0u64,
+        &maturity,
         &token.id,
         &None,
         &treasury,
@@ -579,8 +584,11 @@ fn claim_investor_payout_succeeds_after_settle() {
         &None,
         &None,
     );
-    token.stellar.mint(&escrow_id, &100i128);
-    client.sweep_terminal_dust(&100i128);
+    let investor = Address::generate(&env);
+    client.fund(&investor, &1_000i128);
+    client.settle();
+    client.claim_investor_payout(&investor);
+    assert!(client.is_investor_claimed(&investor));
 }
 
 /// `claim_investor_payout` must be idempotency-guarded: a second call panics.
@@ -675,9 +683,8 @@ fn claim_investor_payout_non_participant_panics() {
     client.fund(&investor, &1_000i128);
     client.settle();
 
-    token.stellar.mint(&escrow_id, &50i128);
-    let swept = client.sweep_terminal_dust(&100i128);
-    assert_eq!(swept, 50i128);
+    let other = Address::generate(&env);
+    client.claim_investor_payout(&other);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -702,7 +709,7 @@ fn funding_snapshot_survives_withdraw() {
         &admin,
         &soroban_sdk::String::from_str(&env, "SW007"),
         &sme,
-        &1_000i128,
+        &TARGET,
         &100i64,
         &0u64,
         &token.id,
@@ -712,11 +719,18 @@ fn funding_snapshot_survives_withdraw() {
         &None,
         &None,
     );
+    fund_to_target(&client, &env);
+    let snapshot_before = client.get_funding_close_snapshot();
+    
+    client.withdraw();
+    let snapshot_after = client.get_funding_close_snapshot();
+    
     assert_eq!(
-        snapshot_after.unwrap().total_principal,
+        snapshot_after.as_ref().unwrap().total_principal,
         TARGET,
         "snapshot total_principal must equal funded amount"
     );
+    assert_eq!(snapshot_before, snapshot_after);
 }
 
 /// After `settle` the snapshot still matches what was recorded at fund-close.
@@ -729,7 +743,7 @@ fn funding_snapshot_survives_settle() {
 
     let snapshot_before = client.get_funding_close_snapshot();
     client.settle();
-    token.stellar.mint(&escrow_id, &10i128);
+    let snapshot_after = client.get_funding_close_snapshot();
 
     assert_eq!(snapshot_before, snapshot_after);
 }

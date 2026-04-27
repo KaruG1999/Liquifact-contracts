@@ -1026,7 +1026,7 @@ impl LiquifactEscrow {
     /// |-----------|--------|
     /// | `stored_version != from_version` | `"from_version does not match stored version"` |
     /// | `from_version >= SCHEMA_VERSION` | `"Already at current schema version"` |
-    /// | Any `from_version < SCHEMA_VERSION` (all paths) | `"No migration path from version {N} — extend migrate or redeploy"` |
+    /// | Any `from_version < SCHEMA_VERSION` (all paths) | `"No migration path from version {N} - extend migrate or redeploy"` |
     ///
     /// See `docs/OPERATOR_RUNBOOK.md` §2 for step-by-step instructions on implementing
     /// a concrete migration path.
@@ -1046,7 +1046,7 @@ impl LiquifactEscrow {
         // To add one: implement the transformation here, call
         //   env.storage().instance().set(&DataKey::Version, &NEW_VERSION);
         // and return NEW_VERSION before reaching this panic.
-        panic!("No migration path from version {from_version} — extend migrate or redeploy");
+        panic!("No migration path from version {from_version} - extend migrate or redeploy");
     }
 
     /// Record investor principal while the invoice is **open**. First deposit sets base

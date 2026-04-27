@@ -12,14 +12,15 @@ use soroban_sdk::{
 
 // Focused test tree for escrow behavior. Shared helpers live here so feature
 // modules stay assertion-focused and each test still owns a fresh Env.
-// mod admin;
-// mod external_calls;
-// mod funding;
-// mod init;
+mod admin;
+mod external_calls;
+mod funding;
+mod init;
 mod integration;
-// mod legal_hold;
-// mod properties;
-// mod settlement;
+mod coverage;
+mod legal_hold;
+mod properties;
+mod settlement;
 
 /// Registers a new escrow contract instance and returns its contract id.
 pub fn deploy_id(env: &Env) -> Address {
