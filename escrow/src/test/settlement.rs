@@ -608,7 +608,7 @@ fn settle_with_maturity_zero_succeeds_immediately() {
         &maturity,
         &token,
         &None,
-        &treasury,
+        &tre,
         &None,
         &None,
         &None,
@@ -1001,11 +1001,14 @@ fn funding_snapshot_survives_withdraw() {
 #[test]
 fn funding_snapshot_survives_settle() {
     let env = Env::default();
+    env.mock_all_auths();
     let (client, admin, sme) = setup(&env);
     default_init(&client, &env, &admin, &sme);
     fund_to_target(&client, &env);
 
-    let snapshot_before = client.get_funding_close_snapshot();
+    let snapshot_before = client
+        .get_funding_close_snapshot()
+        .expect("snapshot exists after fund");
     client.settle();
     let snapshot_after = client.get_funding_close_snapshot();
 
