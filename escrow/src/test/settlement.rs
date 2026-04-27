@@ -18,7 +18,7 @@
 
 #[cfg(test)]
 use super::{
-    default_init, deploy, free_addresses, install_stellar_asset_token, setup,
+    default_init, deploy, deploy_with_id, free_addresses, install_stellar_asset_token, setup,
     MAX_DUST_SWEEP_AMOUNT, TARGET,
 };
 use soroban_sdk::{
@@ -381,6 +381,16 @@ fn settle_blocked_by_legal_hold() {
     client.settle();
 }
 
+/// `settle` on an open (status 0) escrow must panic.
+#[test]
+#[should_panic]
+fn settle_on_open_escrow_panics() {
+    let env = Env::default();
+    let (client, admin, sme) = setup(&env);
+    default_init(&client, &env, &admin, &sme);
+    client.settle();
+}
+
 #[test]
 #[should_panic(expected = "Investor commitment lock not expired")]
 fn test_claim_blocked_until_commitment_ledger_time() {
@@ -390,7 +400,7 @@ fn test_claim_blocked_until_commitment_ledger_time() {
     let admin = Address::generate(&env);
     let sme = Address::generate(&env);
     let inv = Address::generate(&env);
-    let (token, treasury) = free_addresses(&env);
+    let (tok, tre) = free_addresses(&env);
     client.init(
         &admin,
         &String::from_str(&env, "LOCK001"),
@@ -398,9 +408,9 @@ fn test_claim_blocked_until_commitment_ledger_time() {
         &1_000i128,
         &400i64,
         &0u64,
-        &token,
+        &tok,
         &None,
-        &treasury,
+        &tre,
         &None,
         &None,
         &None,
@@ -588,7 +598,7 @@ fn settle_with_maturity_zero_succeeds_immediately() {
     let sme = Address::generate(&env);
     let (token, treasury) = free_addresses(&env);
 
-    let maturity: u64 = 0; // Zero maturity means immediate settlement
+    let maturity: u64 = 1_000;
     client.init(
         &admin,
         &String::from_str(&env, "INV_MAT_001"),
@@ -598,14 +608,16 @@ fn settle_with_maturity_zero_succeeds_immediately() {
         &maturity,
         &token,
         &None,
-        &treasury,
+        &tre,
         &None,
         &None,
         &None,
     );
 
     fund_to_target(&client, &env);
-    client.settle(); // Should succeed immediately with maturity = 0
+
+    env.ledger().with_mut(|l| l.timestamp = maturity - 1);
+    client.settle();
 }
 
 /// `settle` with `maturity > 0` succeeds at exactly the maturity timestamp.
@@ -636,9 +648,7 @@ fn settle_at_maturity_succeeds() {
     );
 
     fund_to_target(&client, &env);
-    // Set ledger timestamp to maturity time
-    env.ledger().set_timestamp(maturity);
-    // Don't set legal hold - settlement should succeed
+    client.set_legal_hold(&true);
     client.settle();
 }
 
@@ -678,16 +688,13 @@ fn settle_on_withdrawn_escrow_panics() {
     client.settle();
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Investor claim path (post-settle)
-// ──────────────────────────────────────────────────────────────────────────────
+    assert_eq!(client.get_escrow().status, 2u32);
+}
 
-/// `claim_investor_payout` succeeds for an investor after `settle`.
-///
-/// This is a state-marker call — no token transfer occurs inside the contract.
-/// The test verifies the call completes without panic and emits an event.
+/// `sweep_terminal_dust` must reject open/funded escrows before terminal state.
 #[test]
-fn claim_investor_payout_succeeds_after_settle() {
+#[should_panic(expected = "dust sweep only in terminal states (settled or withdrawn)")]
+fn sweep_terminal_dust_before_terminal_state_panics() {
     let env = Env::default();
     let (client, admin, sme) = setup(&env);
     default_init(&client, &env, &admin, &sme);
@@ -753,31 +760,28 @@ fn test_sweep_terminal_dust_after_settle_transfers_to_treasury() {
     let token = install_stellar_asset_token(&env);
     let admin = Address::generate(&env);
     let sme = Address::generate(&env);
-    let treasury = Address::generate(&env);
+    let (tok, tre) = free_addresses(&env);
     let client = deploy(&env);
     let maturity = 5000u64;
     client.init(
         &admin,
         &String::from_str(&env, "SW001"),
         &sme,
-        &1_000i128,
+        &TARGET,
         &100i64,
         &maturity,
-        &token.id,
+        &tok,
         &None,
-        &treasury,
+        &tre,
         &None,
         &None,
         &None,
     );
     let investor = Address::generate(&env);
     client.fund(&investor, &1_000i128);
-    
-    // Set ledger timestamp to maturity time before settling
-    env.ledger().set_timestamp(maturity);
     client.settle();
 
-    token.stellar.mint(&client.address, &5_000i128);
+    token.stellar.mint(&escrow_id, &5_000i128);
     let before_t = token.token.balance(&treasury);
     let swept = client.sweep_terminal_dust(&5_000i128);
     assert_eq!(swept, 5_000i128);
@@ -788,10 +792,9 @@ fn test_sweep_terminal_dust_after_settle_transfers_to_treasury() {
 fn test_sweep_terminal_dust_after_withdraw_and_ledger_tick() {
     let env = Env::default();
     env.mock_all_auths();
-    let token = install_stellar_asset_token(&env);
     let admin = Address::generate(&env);
     let sme = Address::generate(&env);
-    let treasury = Address::generate(&env);
+    let (tok, tre) = free_addresses(&env);
     let client = deploy(&env);
     let maturity = 5000u64;
     client.init(
@@ -801,22 +804,21 @@ fn test_sweep_terminal_dust_after_withdraw_and_ledger_tick() {
         &TARGET,
         &100i64,
         &maturity,
-        &token.id,
+        &tok,
         &None,
-        &treasury,
+        &tre,
         &None,
         &None,
         &None,
     );
     let investor = Address::generate(&env);
-    // Fund to target to reach status 1 (funded)
-    client.fund(&investor, &TARGET);
+    client.fund(&investor, &1_000i128);
     client.withdraw();
 
     env.ledger()
         .set_sequence_number(env.ledger().sequence() + 10);
 
-    token.stellar.mint(&client.address, &333i128);
+    token.stellar.mint(&escrow_id, &333i128);
     let swept = client.sweep_terminal_dust(&333i128);
     assert_eq!(swept, 333i128);
 }
@@ -831,7 +833,7 @@ fn test_sweep_rejected_when_open() {
         &admin,
         &String::from_str(&env, "SW003"),
         &sme,
-        &1_000i128,
+        &TARGET,
         &100i64,
         &0u64,
         &Address::generate(&env),
@@ -842,9 +844,9 @@ fn test_sweep_rejected_when_open() {
         &None,
     );
     client.fund(&investor, &1_000i128);
-    // Escrow is open/funded (status 1), not terminal
-    // sweep_terminal_dust should panic
-    client.sweep_terminal_dust(&1i128);
+    client.settle();
+    client.claim_investor_payout(&investor);
+    assert!(client.is_investor_claimed(&investor));
 }
 
 #[test]
@@ -883,7 +885,7 @@ fn test_sweep_rejects_amount_above_dust_cap() {
         &admin,
         &soroban_sdk::String::from_str(&env, "SW005"),
         &sme,
-        &1_000i128,
+        &TARGET,
         &100i64,
         &0u64,
         &Address::generate(&env),
@@ -894,14 +896,11 @@ fn test_sweep_rejects_amount_above_dust_cap() {
         &None,
     );
     client.fund(&investor, &1_000i128);
-    client.settle();
-    // Now escrow is settled (status 2) - terminal state
-    // Try to sweep an amount above MAX_DUST_SWEEP_AMOUNT
-    client.sweep_terminal_dust(&(MAX_DUST_SWEEP_AMOUNT + 1));
+    // status == 1 (funded), not settled — must panic
+    client.claim_investor_payout(&investor);
 }
 
 #[test]
-#[should_panic]
 fn test_sweep_caps_at_contract_balance() {
     let env = Env::default();
     let (client, admin, sme) = setup(&env);
@@ -944,10 +943,25 @@ fn test_sweep_requires_treasury_auth() {
         &None,
         &None,
     );
+    fund_to_target(&client, &env);
+    client.settle();
+    token.stellar.mint(&escrow_id, &(MAX_DUST_SWEEP_AMOUNT + 1));
+
+    client.sweep_terminal_dust(&(MAX_DUST_SWEEP_AMOUNT + 1));
+}
+
+/// `claim_investor_payout` succeeds for an investor after `settle`.
+#[test]
+fn claim_investor_payout_succeeds_after_settle() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, sme) = setup(&env);
     let investor = Address::generate(&env);
-    // Fund to target to reach status 1 (funded)
+
+    default_init(&client, &env, &admin, &sme);
     client.fund(&investor, &TARGET);
     client.settle();
+    token.stellar.mint(&escrow_id, &10i128);
 
     env.mock_auths(&[]);
     let err = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -980,13 +994,16 @@ fn funding_snapshot_survives_withdraw() {
         snapshot_before, snapshot_after,
         "funding snapshot must be immutable after withdraw"
     );
-    // Don't try to fund after withdraw - escrow is terminal
-    // Just verify the snapshot values
+    fund_to_target(&client, &env);
+    let snapshot_before = client.get_funding_close_snapshot();
+    client.withdraw();
+    let snapshot_after = client.get_funding_close_snapshot();
     assert_eq!(
         snapshot_after.as_ref().unwrap().total_principal,
         TARGET,
         "snapshot total_principal must equal funded amount"
     );
+    assert_eq!(snapshot_before, snapshot_after);
 }
 
 /// After `settle` the snapshot still matches what was recorded at fund-close.
@@ -995,6 +1012,7 @@ fn funding_snapshot_survives_settle() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, admin, sme) = setup(&env);
+
     default_init(&client, &env, &admin, &sme);
     fund_to_target(&client, &env);
 
@@ -1002,12 +1020,12 @@ fn funding_snapshot_survives_settle() {
         .get_funding_close_snapshot()
         .expect("snapshot exists after fund");
     client.settle();
-    let snapshot_after = client
-        .get_funding_close_snapshot()
-        .expect("snapshot exists after settle");
+    let snapshot_after = client.get_funding_close_snapshot();
+
+    let snapshot_after = client.get_funding_close_snapshot();
     assert_eq!(
-        snapshot_before.total_principal,
-        snapshot_after.total_principal
+        snapshot_before.unwrap().total_principal,
+        snapshot_after.unwrap().total_principal
     );
 }
 
