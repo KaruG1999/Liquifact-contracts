@@ -3,7 +3,8 @@
 //! Holds investor funds for an invoice until settlement.
 //! - SME receives stablecoin when funding target is met ([`LiquifactEscrow::withdraw`])
 //! - SME records optional **collateral commitments** ([`LiquifactEscrow::record_sme_collateral_commitment`]) —
-//!   these are **ledger records only**; they do **not** move tokens or trigger liquidation.
+//!   these are **ledger records only**; they do **not** move tokens, freeze balances,
+//!   reserve assets, or create an enforceable on-chain claim.
 //! - [`LiquifactEscrow::settle`] finalizes the escrow after maturity (when configured).
 //!
 //! ## Schema version ([`SCHEMA_VERSION`] / [`DataKey::Version`])
@@ -14,6 +15,14 @@
 //! [`LiquifactEscrow::migrate`] **panics in all current execution paths** — no silent migration
 //! work is promised or performed. Operators must extend `migrate` before calling it, or redeploy
 //! when stored struct layout changes. See `docs/OPERATOR_RUNBOOK.md` for the full decision tree.
+//!
+//! ## SME collateral commitment metadata
+//!
+//! [`LiquifactEscrow::record_sme_collateral_commitment`] is an SME-authenticated metadata write for
+//! off-chain risk review. The stored [`SmeCollateralCommitment`] and emitted
+//! [`CollateralRecordedEvt`] are not proof of custody, lien, encumbrance, asset control, or token
+//! movement. Risk teams and indexers must label this state as reported collateral metadata and must
+//! verify supporting evidence outside this contract.
 //!
 //! ## Compliance hold (legal hold)
 //!
@@ -75,8 +84,13 @@
 //! written; off-chain pro-rata share for an investor is `get_contribution(addr) / snapshot.total_principal`
 //! in rational arithmetic (watch integer rounding off-chain).
 
+#![no_std]
 #![allow(clippy::too_many_arguments)]
 
+#[cfg(test)]
+extern crate std;
+
+use core::{clone::Clone, default::Default};
 use soroban_sdk::{
     contract, contractevent, contractimpl, contracttype, symbol_short, token::TokenClient, Address,
     BytesN, Env, String, Symbol, Vec,
@@ -143,8 +157,8 @@ pub enum DataKey {
     /// When true, compliance/legal hold blocks payouts and settlement finalization.
     /// Absent ⇒ `false` (no hold). Toggled by admin via [`LiquifactEscrow::set_legal_hold`].
     LegalHold,
-    /// Optional SME collateral pledge metadata (record-only — not an on-chain asset lock).
-    /// Absent when no pledge has been recorded. Replaceable by the SME.
+    /// Optional SME collateral commitment metadata (record-only — not an on-chain asset lock).
+    /// Absent when no commitment has been recorded. Replaceable by the SME.
     SmeCollateralPledge,
     /// Set to `true` when an investor has exercised a claim after settlement.
     /// Absent ⇒ `false`. Written once; a second claim panics.
@@ -217,15 +231,16 @@ pub struct InvoiceEscrow {
     pub status: u32,
 }
 
-/// SME-reported collateral intended for future liquidation hooks.
+/// SME-reported collateral metadata for off-chain risk review.
 ///
 /// **Record-only:** this struct is stored for transparency and indexing. It does **not**
-/// custody collateral, freeze tokens, or invoke automated liquidation. A future version could
-/// optionally enforce transfers, but that would be explicit in the API and must not reuse
-/// this record as proof of locked assets without on-chain enforcement changes.
+/// custody, escrow, transfer, freeze, reserve, or verify assets. It also does not alter funding,
+/// settlement, SME withdrawal, investor-claim, or treasury-sweep behavior. Future versions that
+/// enforce asset movement or custody must introduce explicit APIs and must not treat historical
+/// records from this type as proof of locked assets.
 #[contracttype]
 #[derive(Debug, PartialEq)]
-/// SME collateral pledge metadata (record-only).
+/// SME collateral commitment metadata (record-only).
 ///
 /// Derive rationale:
 /// - `Debug`: improves failure diagnostics in tests.
@@ -327,12 +342,19 @@ pub struct LegalHoldChanged {
     pub active: u32,
 }
 
-/// Collateral pledge recorded; asset code is read from [`DataKey::SmeCollateralPledge`].
+/// SME collateral commitment metadata recorded.
+///
+/// This event means only that [`DataKey::SmeCollateralPledge`] was written by the SME. It is not
+/// proof of custody, lien, encumbrance, asset control, or token movement. The event intentionally
+/// omits token contract, custodian, and transfer-receipt fields so consumers do not treat it as an
+/// on-chain encumbrance.
 #[contractevent]
 pub struct CollateralRecordedEvt {
     #[topic]
     pub name: Symbol,
+    /// Invoice whose SME-reported metadata was updated.
     pub invoice_id: Symbol,
+    /// SME-reported amount in the off-chain asset's own units; not a locked token balance.
     pub amount: i128,
 }
 
@@ -856,9 +878,11 @@ impl LiquifactEscrow {
             .unwrap_or(false)
     }
 
-    /// Record or replace the optional SME collateral pledge (metadata only).
+    /// Record or replace the optional SME collateral commitment metadata.
     ///
-    /// **Not an enforced on-chain lock** — cannot by itself trigger liquidation or block unrelated flows.
+    /// **Metadata-only:** this writes [`DataKey::SmeCollateralPledge`] and emits
+    /// [`CollateralRecordedEvt`]. It does not transfer tokens, reserve balances, verify custody,
+    /// create an on-chain encumbrance, or block unrelated flows.
     pub fn record_sme_collateral_commitment(
         env: Env,
         asset: Symbol,
